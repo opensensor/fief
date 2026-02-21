@@ -1,7 +1,7 @@
 {% import "macros/icons.html" as icons %}
 
 {% macro form_field_label(field) %}
-<label class="block text-sm font-medium mb-1" for="{{ field.id }}">
+<label class="block text-sm font-medium mb-1 bg-white/60 backdrop-blur-sm px-2 py-1 rounded inline-block" for="{{ field.id }}">
   {{ _(field.label) }}
   {% if field.flags.required %}
     <span class="text-teal-500">*</span>
@@ -29,7 +29,7 @@
 {% endmacro %}
 
 {% macro form_checkbox_field(field) %}
-<label class="flex items-center text-sm font-medium" for="{{ field.id }}">
+<label class="flex items-center text-sm font-medium bg-white/60 backdrop-blur-sm px-2 py-1 rounded inline-flex" for="{{ field.id }}">
   {{ field(class="form-checkbox", **kwargs) }}
   <span class="ml-2">{{ field.label }}</span>
   {% if field.flags.required %}
