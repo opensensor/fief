@@ -58,12 +58,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Trigger fief deployment in storefront repo
-        if: github.ref == 'refs/heads/main'
-        run: |
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.STOREFRONT_DEPLOY_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/opensensor/storefront/dispatches \
-            -d '{"event_type":"fief-image-built"}'
