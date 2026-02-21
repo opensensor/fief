@@ -4,7 +4,7 @@
 <label class="block text-sm font-medium mb-1" for="{{ field.id }}">
   {{ _(field.label) }}
   {% if field.flags.required %}
-    <span class="text-rose-500">*</span>
+    <span class="text-teal-500">*</span>
   {% endif %}
 </label>
 {% endmacro %}
@@ -33,7 +33,7 @@
   {{ field(class="form-checkbox", **kwargs) }}
   <span class="ml-2">{{ field.label }}</span>
   {% if field.flags.required %}
-    <span class="text-rose-500">*</span>
+    <span class="text-teal-500">*</span>
   {% endif %}
 </label>
 {% endmacro %}
