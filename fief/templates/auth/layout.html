@@ -12,7 +12,11 @@
               {% if tenant.logo_url %}
                 <img src="{{ tenant.logo_url }}" alt="{{ tenant.name }}" class="max-h-full max-w-[100px]" />
               {% else %}
-                <span class="text-3xl text-accent font-bold">{{ tenant.name }}</span>
+                <a href="https://opensensor.io" rel="noreferrer noopener" target="_blank">
+                  <img src="https://growmax.nyc3.cdn.digitaloceanspaces.com/OpenSensorFallLogo.png"
+                       alt="OpenSensor"
+                       class="max-h-10 max-w-[160px]" />
+                </a>
               {% endif %}
             </div>
           </div>
