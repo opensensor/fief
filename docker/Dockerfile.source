@@ -56,10 +56,6 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir /tmp/*.whl \
     && rm /tmp/*.whl
 
-# click 8.3.x broke typer 0.12.5's secondary-flag generation for bool options.
-# Force-reinstall as a separate layer so GHA layer cache can never mask the pin.
-RUN pip install --no-cache-dir --force-reinstall "click==8.1.7"
-
 # Trim build-only system packages
 RUN apt-get purge -y --auto-remove build-essential && rm -rf /var/lib/apt/lists/*
 
