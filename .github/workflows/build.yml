@@ -1,8 +1,10 @@
 name: Build
 
+# This workflow is kept for reference but disabled from automatic triggers.
+# opensensor/fief does not publish to PyPI; use docker-image.yml for releases.
+# Trigger manually via GitHub UI -> Actions -> Build -> Run workflow if needed.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   lint:
