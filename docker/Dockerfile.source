@@ -51,9 +51,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the wheel built in stage 1
+# click is pinned to <8.3 because click 8.3.x introduced a validation that
+# breaks typer 0.12.5's secondary-flag generation for bool options.
 COPY --from=builder /build/dist/*.whl /tmp/
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir /tmp/*.whl \
+    && pip install --no-cache-dir /tmp/*.whl "click==8.1.7" \
     && rm /tmp/*.whl
 
 # Trim build-only system packages
