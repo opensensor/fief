@@ -66,10 +66,12 @@ class Settings(BaseSettings):
     database_name: str | None = "fief.db"
     database_ssl_mode: str | None = None
     database_location: DirectoryPath = Path.cwd()
-    database_pool_recycle_seconds: int = 600
-    database_pool_pre_ping: bool = False
+    database_pool_recycle_seconds: int = 300
+    database_pool_pre_ping: bool = True
     database_pool_size: int = 5
     database_pool_max_overflow: int = 10
+    database_pool_timeout: int = 30
+    database_statement_timeout: int = 30000
     database_table_prefix: str = "fief_"
 
     redis_url: str = "redis://localhost:6379"

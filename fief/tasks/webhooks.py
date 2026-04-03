@@ -15,6 +15,7 @@ class DeliverWebhookTask(TaskBase):
     __name__ = "deliver_webhook"
 
     async def run(self, webhook_id: str, event: str):
+        # Phase 1: Fetch webhook data (short-lived session)
         async with self.get_main_session() as session:
             webhook_repository = WebhookRepository(session)
             webhook = await webhook_repository.get_by_id(uuid.UUID(webhook_id))
@@ -22,14 +23,33 @@ class DeliverWebhookTask(TaskBase):
             if webhook is None:
                 raise ObjectDoesNotExistTaskError(Webhook, webhook_id)
 
-            retries = 0
-            if (message := CurrentMessage.get_current_message()) is not None:
-                retries = message.options.get("retries", 0)
+            # Extract what we need before closing the session
+            webhook_url = webhook.url
+            webhook_secret = webhook.secret
+            webhook_obj_id = webhook.id
 
+        retries = 0
+        if (message := CurrentMessage.get_current_message()) is not None:
+            retries = message.options.get("retries", 0)
+
+        parsed_event = WebhookEvent.model_validate_json(event)
+
+        # Phase 2: HTTP delivery (no DB session held)
+        webhook_log = await WebhookDelivery.execute_delivery(
+            url=webhook_url,
+            secret=webhook_secret,
+            webhook_id=webhook_obj_id,
+            event=parsed_event,
+            attempt=retries + 1,
+        )
+
+        # Phase 3: Log result (short-lived session)
+        async with self.get_main_session() as session:
             webhook_log_repository = WebhookLogRepository(session)
-            webhook_delivery = WebhookDelivery(webhook_log_repository)
-            parsed_event = WebhookEvent.model_validate_json(event)
-            await webhook_delivery.deliver(webhook, parsed_event, attempt=retries + 1)
+            await webhook_log_repository.create(webhook_log)
+
+        if not webhook_log.success:
+            raise WebhookDeliveryError(webhook_log.error_message or "Delivery failed")
 
 
 def should_retry_deliver_webhook(retries_so_far, exception):
