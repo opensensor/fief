@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 import httpx
 import pytest
 from fastapi import status
@@ -41,10 +43,11 @@ class TestWellKnownOpenIDConfiguration:
         assert json["code_challenge_methods_supported"] == ["plain", "S256"]
 
         endpoint: str = json["authorization_endpoint"]
+        parsed = urlparse(endpoint)
         if x_forwarded_host is not None:
-            assert endpoint.startswith(f"http://{x_forwarded_host}")
+            assert parsed.hostname == x_forwarded_host
         else:
-            assert endpoint.startswith("http://api.fief.dev")
+            assert parsed.hostname == "api.fief.dev"
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ import urllib.parse
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import AnyUrl
+from sqlalchemy import select
 
 from fief.apps.auth.forms.auth import ConsentForm, LoginForm
 from fief.apps.auth.forms.verify_email import VerifyEmailForm
@@ -43,6 +44,7 @@ from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
 from fief.models import Client, LoginSession, OAuthProvider, Tenant, User
 from fief.models.session_token import SessionToken
+from fief.repositories import ClientRepository
 from fief.repositories.session_token import SessionTokenRepository
 from fief.schemas.auth import LogoutError
 from fief.services.acr import ACR
@@ -347,6 +349,9 @@ async def logout(
     session_token_repository: SessionTokenRepository = Depends(
         get_repository(SessionTokenRepository)
     ),
+    client_repository: ClientRepository = Depends(
+        get_repository(ClientRepository)
+    ),
     tenant: Tenant = Depends(get_current_tenant),
 ):
     if redirect_uri is None:
@@ -355,10 +360,35 @@ async def logout(
             tenant,
         )
 
+    # Validate redirect_uri against registered client redirect URIs
+    # to prevent open redirect attacks (CWE-601)
+    redirect_uri_str = str(redirect_uri)
+    parsed = urllib.parse.urlparse(redirect_uri_str.replace("\\", ""))
+    if parsed.scheme and parsed.netloc:
+        clients = await client_repository.list(
+            select(Client).where(Client.tenant_id == tenant.id)
+        )
+        allowed_origins = set()
+        for client in clients:
+            for uri in client.redirect_uris:
+                client_parsed = urllib.parse.urlparse(uri)
+                if client_parsed.scheme and client_parsed.netloc:
+                    allowed_origins.add(
+                        f"{client_parsed.scheme}://{client_parsed.netloc}"
+                    )
+        redirect_origin = f"{parsed.scheme}://{parsed.netloc}"
+        if redirect_origin not in allowed_origins:
+            raise LogoutException(
+                LogoutError.get_invalid_request(
+                    _("redirect_uri is not allowed for this tenant")
+                ),
+                tenant,
+            )
+
     if session_token is not None:
         await session_token_repository.delete(session_token)
 
-    response = RedirectResponse(str(redirect_uri), status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(redirect_uri_str, status_code=status.HTTP_302_FOUND)
 
     response.delete_cookie(
         settings.session_cookie_name,
