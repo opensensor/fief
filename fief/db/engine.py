@@ -23,6 +23,7 @@ def create_engine(
                 "pool_size": settings.database_pool_size,
                 "max_overflow": settings.database_pool_max_overflow,
                 "pool_timeout": settings.database_pool_timeout,
+                "pool_reset_on_return": "rollback",
             }
         )
     # Set statement timeout for PostgreSQL via asyncpg server_settings
@@ -32,7 +33,7 @@ def create_engine(
             settings.database_statement_timeout
         )
         connect_args["server_settings"]["idle_in_transaction_session_timeout"] = str(
-            settings.database_statement_timeout
+            settings.database_idle_in_transaction_timeout
         )
     engine = create_async_engine(database_url, **engine_params)
 

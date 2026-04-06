@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     database_pool_max_overflow: int = 10
     database_pool_timeout: int = 30
     database_statement_timeout: int = 30000
+    database_idle_in_transaction_timeout: int = 15000
     database_table_prefix: str = "fief_"
 
     redis_url: str = "redis://localhost:6379"
