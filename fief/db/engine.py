@@ -35,6 +35,10 @@ def create_engine(
         connect_args["server_settings"]["idle_in_transaction_session_timeout"] = str(
             settings.database_idle_in_transaction_timeout
         )
+        # Client-side command timeout (asyncpg, in seconds). PostgreSQL's
+        # statement_timeout exempts ROLLBACK/ABORT, so a hung ROLLBACK on a
+        # broken TCP connection will wait forever without this.
+        connect_args["command_timeout"] = 60
     engine = create_async_engine(database_url, **engine_params)
 
     # Special tweak for SQLite to better handle transaction
