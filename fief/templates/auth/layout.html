@@ -2,110 +2,126 @@
 
 {% extends "auth/base.html" %}
 
+{% set has_hero = brand and brand.hero_url %}
+
 {% block body %}
-  <main class="relative min-h-screen overflow-hidden">
-    <!-- Avant-garde background pattern -->
-    <div class="fixed inset-0 z-0 bg-gradient-to-br from-slate-50 via-teal-50/30 to-emerald-50/20">
-      {% if brand and brand.hero_url %}
-        <!-- Brand hero watermark -->
-        <img src="{{ brand.hero_url }}" alt="" aria-hidden="true"
-             class="pointer-events-none select-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(90vmin,900px)] h-[min(90vmin,900px)] object-contain opacity-15"
-             style="filter: blur(2px);" />
-      {% endif %}
-      <!-- Animated geometric pattern -->
-      <svg class="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-            <path d="M 60 0 L 0 0 0 60" fill="none" stroke="currentColor" stroke-width="0.5" class="text-teal-400"/>
-          </pattern>
-          <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
-            <circle cx="2" cy="2" r="1" fill="currentColor" class="text-teal-500"/>
-          </pattern>
-          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#14b8a6;stop-opacity:0.25" />
-            <stop offset="100%" style="stop-color:#0d9488;stop-opacity:0.15" />
-          </linearGradient>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#grid)"/>
-        <rect width="100%" height="100%" fill="url(#dots)"/>
-        <!-- Floating geometric shapes -->
-        <circle cx="10%" cy="20%" r="120" fill="url(#grad1)" class="animate-pulse"/>
-        <circle cx="85%" cy="75%" r="180" fill="url(#grad1)" class="animate-pulse" style="animation-delay: 1s"/>
-        <polygon points="90,10 110,50 70,50" fill="currentColor" class="text-teal-400/10" transform="translate(200, 100) scale(3)"/>
-        <polygon points="90,10 110,50 70,50" fill="currentColor" class="text-emerald-400/10" transform="translate(800, 500) scale(4) rotate(180)"/>
-      </svg>
+  <main class="relative min-h-screen overflow-hidden{% if has_hero %} lg:flex{% endif %}">
 
-      <!-- Subtle scan lines effect -->
-      <div class="absolute inset-0 opacity-[0.03]" style="background: repeating-linear-gradient(0deg, transparent, transparent 2px, #14b8a6 2px, #14b8a6 4px);"></div>
-    </div>
+    {% if has_hero %}
+      <!-- Brand hero: top-stacked on mobile (capped), left half on desktop -->
+      <aside class="relative bg-slate-950 flex-shrink-0 overflow-hidden lg:w-1/2 lg:h-screen">
+        <img src="{{ brand.hero_url }}" alt="{{ brand.name }}"
+             class="block w-full h-[55vh] lg:w-full lg:h-full object-cover opacity-80" />
+        <!-- Soft blend into form panel: bottom edge on mobile, right edge on desktop -->
+        <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent to-slate-50 lg:hidden"></div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-r from-transparent to-slate-50 hidden lg:block"></div>
+      </aside>
+    {% endif %}
 
-    <div class="relative flex z-10">
-      <div class="w-full">
-        <div class="min-h-screen h-full flex flex flex-col after:flex-1">
-          <div class="flex-1">
-            <div class="flex items-center justify-between h-16 py-2 px-4 sm:px-6 lg:px-8">
-              {% set brand_logo = brand.logo_url if brand else tenant.logo_url %}
-              {% set brand_name = brand.name if brand else "OpenSensor" %}
-              {% set brand_url = brand.application_url if brand else "https://opensensor.io" %}
-              {% if brand_logo %}
-                <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank">
-                  <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="max-h-full max-w-[100px]" />
-                </a>
-              {% else %}
-                <div class="flex items-center space-x-2">
-                  <div class="flex items-center space-x-1">
-                    <div class="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></div>
-                    <div class="w-2 h-2 rounded-full bg-teal-400 animate-pulse" style="animation-delay: 0.2s"></div>
-                    <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" style="animation-delay: 0.4s"></div>
-                  </div>
-                  <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank" class="text-xl font-bold bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent hover:from-teal-700 hover:to-emerald-700 transition-all">
-                    {{ brand_name }}
-                  </a>
-                </div>
-              {% endif %}
-            </div>
-          </div>
+    <!-- Form column -->
+    <div class="relative{% if has_hero %} lg:w-1/2 lg:h-screen lg:overflow-y-auto{% endif %}">
+      <!-- Avant-garde background pattern -->
+      <div class="absolute inset-0 z-0 bg-gradient-to-br from-slate-50 via-teal-50/30 to-emerald-50/20">
+        <!-- Animated geometric pattern -->
+        <svg class="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+              <path d="M 60 0 L 0 0 0 60" fill="none" stroke="currentColor" stroke-width="0.5" class="text-teal-400"/>
+            </pattern>
+            <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
+              <circle cx="2" cy="2" r="1" fill="currentColor" class="text-teal-500"/>
+            </pattern>
+            <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" style="stop-color:#14b8a6;stop-opacity:0.25" />
+              <stop offset="100%" style="stop-color:#0d9488;stop-opacity:0.15" />
+            </linearGradient>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)"/>
+          <rect width="100%" height="100%" fill="url(#dots)"/>
+          <!-- Floating geometric shapes -->
+          <circle cx="10%" cy="20%" r="120" fill="url(#grad1)" class="animate-pulse"/>
+          <circle cx="85%" cy="75%" r="180" fill="url(#grad1)" class="animate-pulse" style="animation-delay: 1s"/>
+          <polygon points="90,10 110,50 70,50" fill="currentColor" class="text-teal-400/10" transform="translate(200, 100) scale(3)"/>
+          <polygon points="90,10 110,50 70,50" fill="currentColor" class="text-emerald-400/10" transform="translate(800, 500) scale(4) rotate(180)"/>
+        </svg>
 
-          <div class="w-full max-w-sm mx-auto px-4 py-8">
-            <div class="backdrop-blur-xl bg-white/80 rounded-2xl shadow-2xl border border-teal-100/50 p-8 relative overflow-hidden">
-              <!-- Subtle inner glow -->
-              <div class="absolute inset-0 bg-gradient-to-br from-teal-50/50 via-transparent to-emerald-50/30 pointer-events-none"></div>
+        <!-- Subtle scan lines effect -->
+        <div class="absolute inset-0 opacity-[0.03]" style="background: repeating-linear-gradient(0deg, transparent, transparent 2px, #14b8a6 2px, #14b8a6 4px);"></div>
+      </div>
 
-              <div class="relative z-10">
-                <h1 class="text-3xl text-accent font-bold mb-6">{% block title %}{% endblock %}</h1>
-            {% if error is defined %}
-              <div class="my-4 px-4 py-2 rounded-sm text-sm bg-red-100 border border-red-200 text-red-600">
-                <div class="flex w-full justify-between items-start">
-                  <div class="flex">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 fill-current opacity-80 mt-[3px] mr-3" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                    </svg>
-                    <div>{{error}}</div>
-                  </div>
+      <div class="relative flex z-10 min-h-screen">
+        <div class="w-full">
+          <div class="min-h-screen h-full flex flex-col after:flex-1">
+            {% if not has_hero %}
+              <!-- Top header strip (hidden when hero panel already displays the brand) -->
+              <div class="flex-1">
+                <div class="flex items-center justify-between h-16 py-2 px-4 sm:px-6 lg:px-8">
+                  {% set brand_logo = brand.logo_url if brand else tenant.logo_url %}
+                  {% set brand_name = brand.name if brand else "OpenSensor" %}
+                  {% set brand_url = brand.application_url if brand else "https://opensensor.io" %}
+                  {% if brand_logo %}
+                    <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank">
+                      <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="max-h-full max-w-[100px]" />
+                    </a>
+                  {% else %}
+                    <div class="flex items-center space-x-2">
+                      <div class="flex items-center space-x-1">
+                        <div class="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></div>
+                        <div class="w-2 h-2 rounded-full bg-teal-400 animate-pulse" style="animation-delay: 0.2s"></div>
+                        <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" style="animation-delay: 0.4s"></div>
+                      </div>
+                      <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank" class="text-xl font-bold bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent hover:from-teal-700 hover:to-emerald-700 transition-all">
+                        {{ brand_name }}
+                      </a>
+                    </div>
+                  {% endif %}
                 </div>
               </div>
+            {% else %}
+              <div class="flex-1"></div>
             {% endif %}
-            {% if success is defined %}
-              <div class="my-4 px-4 py-2 rounded-sm text-sm bg-emerald-100 border border-emerald-200 text-emerald-600">
-                <div class="flex w-full justify-between items-start">
-                  <div class="flex">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 fill-current opacity-80 mt-[3px] mr-3" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                    </svg>
-                    <div>{{success}}</div>
-                  </div>
+
+            <div class="w-full max-w-sm mx-auto px-4 py-8">
+              <div class="backdrop-blur-xl bg-white/80 rounded-2xl shadow-2xl border border-teal-100/50 p-8 relative overflow-hidden">
+                <!-- Subtle inner glow -->
+                <div class="absolute inset-0 bg-gradient-to-br from-teal-50/50 via-transparent to-emerald-50/30 pointer-events-none"></div>
+
+                <div class="relative z-10">
+                  <h1 class="text-3xl text-accent font-bold mb-6">{% block title %}{% endblock %}</h1>
+                  {% if error is defined %}
+                    <div class="my-4 px-4 py-2 rounded-sm text-sm bg-red-100 border border-red-200 text-red-600">
+                      <div class="flex w-full justify-between items-start">
+                        <div class="flex">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 fill-current opacity-80 mt-[3px] mr-3" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                          </svg>
+                          <div>{{error}}</div>
+                        </div>
+                      </div>
+                    </div>
+                  {% endif %}
+                  {% if success is defined %}
+                    <div class="my-4 px-4 py-2 rounded-sm text-sm bg-emerald-100 border border-emerald-200 text-emerald-600">
+                      <div class="flex w-full justify-between items-start">
+                        <div class="flex">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 fill-current opacity-80 mt-[3px] mr-3" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                          </svg>
+                          <div>{{success}}</div>
+                        </div>
+                      </div>
+                    </div>
+                  {% endif %}
+                  {% if not fatal_error %}
+                    {% block auth_form %}
+                    {% endblock %}
+                  {% endif %}
+                  {% if show_branding %}
+                    <div class="pt-5 mt-6 border-t border-teal-100/50">
+                      {{ branding.branding() }}
+                    </div>
+                  {% endif %}
                 </div>
-              </div>
-            {% endif %}
-                {% if not fatal_error %}
-                  {% block auth_form %}
-                  {% endblock %}
-                {% endif %}
-                {% if show_branding %}
-                  <div class="pt-5 mt-6 border-t border-teal-100/50">
-                    {{ branding.branding() }}
-                  </div>
-                {% endif %}
               </div>
             </div>
           </div>
