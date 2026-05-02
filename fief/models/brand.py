@@ -22,6 +22,9 @@ class Brand(UUIDModel, CreatedUpdatedAt, Base):
     logo_url: Mapped[str | None] = mapped_column(
         PydanticUrlString(String)(length=512), default=None, nullable=True
     )
+    hero_url: Mapped[str | None] = mapped_column(
+        PydanticUrlString(String)(length=512), default=None, nullable=True
+    )
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     tenant_id: Mapped[UUID4] = mapped_column(

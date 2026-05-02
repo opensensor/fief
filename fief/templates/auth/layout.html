@@ -6,6 +6,12 @@
   <main class="relative min-h-screen overflow-hidden">
     <!-- Avant-garde background pattern -->
     <div class="fixed inset-0 z-0 bg-gradient-to-br from-slate-50 via-teal-50/30 to-emerald-50/20">
+      {% if brand and brand.hero_url %}
+        <!-- Brand hero watermark -->
+        <img src="{{ brand.hero_url }}" alt="" aria-hidden="true"
+             class="pointer-events-none select-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(90vmin,900px)] h-[min(90vmin,900px)] object-contain opacity-15"
+             style="filter: blur(2px);" />
+      {% endif %}
       <!-- Animated geometric pattern -->
       <svg class="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
         <defs>
