@@ -121,3 +121,7 @@ node_modules/
 # Generated files
 fief/static/*.js
 fief/static/*.css
+
+# Claude Code / MCP local config (contains secrets)
+.mcp.json
+.claude/
