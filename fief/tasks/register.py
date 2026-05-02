@@ -11,7 +11,7 @@ from fief.tasks.base import TaskBase
 class OnAfterRegisterTask(TaskBase):
     __name__ = "on_after_register"
 
-    async def run(self, user_id: str):
+    async def run(self, user_id: str, brand_id: str | None = None):
         user = await self._get_user(uuid.UUID(user_id))
         tenant = await self._get_tenant(user.tenant_id)
 
@@ -31,7 +31,7 @@ class OnAfterRegisterTask(TaskBase):
             )
 
         self.email_provider.send_email(
-            sender=tenant.get_email_sender(),
+            sender=await self._resolve_email_sender(tenant, brand_id),
             recipient=(user.email, None),
             subject=subject,
             html=html,

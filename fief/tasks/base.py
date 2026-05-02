@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import uuid
 from collections.abc import AsyncGenerator, Callable
 from typing import ClassVar
 from urllib.parse import urlparse
@@ -15,10 +16,11 @@ from fief.db import AsyncSession
 from fief.db.main import get_single_main_async_session
 from fief.logger import logger
 from fief.middlewares.locale import BabelMiddleware, get_babel_middleware_kwargs
-from fief.models import Tenant, User
+from fief.models import Brand, Tenant, User
 from fief.models.generics import BaseModel
 from fief.paths import EMAIL_TEMPLATES_DIRECTORY
 from fief.repositories import (
+    BrandRepository,
     EmailTemplateRepository,
     TenantRepository,
     UserRepository,
@@ -109,6 +111,23 @@ class TaskBase:
             if tenant is None:
                 raise TaskError()
             return tenant
+
+    async def _get_brand(self, brand_id: UUID4) -> Brand | None:
+        async with self.get_main_session() as session:
+            repository = BrandRepository(session)
+            return await repository.get_by_id(
+                brand_id, (selectinload(Brand.email_domain),)
+            )
+
+    async def _resolve_email_sender(
+        self, tenant: Tenant, brand_id: str | None
+    ) -> tuple[str, str | None]:
+        if brand_id is None:
+            return tenant.get_email_sender()
+        brand = await self._get_brand(uuid.UUID(brand_id))
+        if brand is None:
+            return tenant.get_email_sender()
+        return brand.get_email_sender(fallback_tenant=tenant)
 
     @contextlib.asynccontextmanager
     async def _get_email_template_renderer(

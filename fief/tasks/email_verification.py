@@ -15,7 +15,9 @@ from fief.tasks.base import ObjectDoesNotExistTaskError, TaskBase
 class OnEmailVerificationRequestedTask(TaskBase):
     __name__ = "on_email_verification_requested"
 
-    async def run(self, email_verification_id: str, code: str):
+    async def run(
+        self, email_verification_id: str, code: str, brand_id: str | None = None
+    ):
         async with self.get_main_session() as session:
             email_verification_repository = EmailVerificationRepository(session)
             email_verification = await email_verification_repository.get_by_id(
@@ -47,7 +49,7 @@ class OnEmailVerificationRequestedTask(TaskBase):
                 )
 
             self.email_provider.send_email(
-                sender=tenant.get_email_sender(),
+                sender=await self._resolve_email_sender(tenant, brand_id),
                 recipient=(email_verification.email, None),
                 subject=subject,
                 html=html,

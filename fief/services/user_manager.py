@@ -19,7 +19,11 @@ from fief.models import (
     UserField,
     UserFieldValue,
 )
-from fief.repositories import EmailVerificationRepository, UserRepository
+from fief.repositories import (
+    BrandRepository,
+    EmailVerificationRepository,
+    UserRepository,
+)
 from fief.services.password import PasswordValidation
 from fief.services.user_roles import UserRolesService
 from fief.services.webhooks.models import (
@@ -322,11 +326,22 @@ class UserManager:
         await self.on_after_update(user, request=request)
         return user
 
+    async def _get_brand_id_from_request(self, request: Request | None) -> str | None:
+        if request is None:
+            return None
+        host = request.url.hostname
+        if not host:
+            return None
+        repository = BrandRepository(self.user_repository.session)
+        brand = await repository.get_by_host(host)
+        return str(brand.id) if brand is not None else None
+
     async def on_after_register(self, user: User, *, request: Request | None = None):
         self.audit_logger(AuditLogMessage.USER_REGISTERED, subject_user_id=user.id)
         self.trigger_webhooks(UserCreated, user, schemas.user.UserRead)
         await self.user_roles.add_default_roles(user, run_in_worker=False)
-        self.send_task(on_after_register, str(user.id))
+        brand_id = await self._get_brand_id_from_request(request)
+        self.send_task(on_after_register, str(user.id), brand_id)
 
     async def on_after_update(self, user: User, *, request: Request | None = None):
         self.audit_logger(AuditLogMessage.USER_UPDATED, subject_user_id=user.id)
@@ -346,10 +361,12 @@ class UserManager:
         )
         # TODO: Webhook
 
+        brand_id = await self._get_brand_id_from_request(request)
         self.send_task(
             on_email_verification_requested,
             str(email_verification.id),
             code,
+            brand_id,
         )
 
     async def on_after_forgot_password(
@@ -363,10 +380,12 @@ class UserManager:
         assert request is not None
         reset_url = furl(user.tenant.url_for(request, "reset:reset"))
         reset_url.add(query_params={"token": token})
+        brand_id = await self._get_brand_id_from_request(request)
         self.send_task(
             on_after_forgot_password,
             str(user.id),
             reset_url.url,
+            brand_id,
         )
 
     async def on_after_reset_password(
