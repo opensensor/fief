@@ -60,8 +60,8 @@
                   {% set brand_name = brand.name if brand else "OpenSensor" %}
                   {% set brand_url = brand.application_url if brand else "https://opensensor.io" %}
                   {% if brand_logo %}
-                    <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank">
-                      <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="max-h-full max-w-[100px]" />
+                    <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank" class="block">
+                      <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-10 w-auto max-w-[180px] object-contain" />
                     </a>
                   {% else %}
                     <div class="flex items-center space-x-2">
