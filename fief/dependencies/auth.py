@@ -4,6 +4,7 @@ from typing import TypedDict
 from fastapi import Cookie, Depends, HTTPException, Query, Request, Response, status
 
 from fief.dependencies.authentication_flow import get_authentication_flow
+from fief.dependencies.brand import get_current_brand
 from fief.dependencies.branding import get_show_branding
 from fief.dependencies.repositories import get_repository
 from fief.dependencies.session_token import get_session_token
@@ -15,7 +16,7 @@ from fief.exceptions import (
     LoginException,
 )
 from fief.locale import gettext_lazy as _
-from fief.models import Client, LoginSession, SessionToken, Tenant, Theme
+from fief.models import Brand, Client, LoginSession, SessionToken, Tenant, Theme
 from fief.repositories import ClientRepository, GrantRepository, LoginSessionRepository
 from fief.schemas.auth import AuthorizeError, AuthorizeRedirectError, LoginError
 from fief.services.acr import ACR
@@ -357,6 +358,7 @@ class BaseContext(TypedDict):
     request: Request
     tenant: Tenant
     theme: Theme
+    brand: Brand | None
     show_branding: bool
 
 
@@ -364,11 +366,13 @@ async def get_base_context(
     request: Request,
     tenant: Tenant = Depends(get_current_tenant),
     theme: Theme = Depends(get_current_theme),
+    brand: Brand | None = Depends(get_current_brand),
     show_branding: bool = Depends(get_show_branding),
 ) -> BaseContext:
     return {
         "request": request,
         "tenant": tenant,
         "theme": theme,
+        "brand": brand,
         "show_branding": show_branding,
     }

@@ -3,7 +3,7 @@
   <head>
     {% block head %}
       {% block head_title %}
-        <title id="head-title" hx-swap-oob="true">{% block head_title_content %}{% endblock %} · {{ tenant.name if tenant is defined else "OpenSensor" }}</title>
+        <title id="head-title" hx-swap-oob="true">{% block head_title_content %}{% endblock %} · {{ brand.name if brand else (tenant.name if tenant is defined else "OpenSensor") }}</title>
       {% endblock %}
       <meta name="viewport" content="width=device-width, initial-scale=1">
       {% block favicon %}

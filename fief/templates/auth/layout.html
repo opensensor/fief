@@ -38,8 +38,13 @@
         <div class="min-h-screen h-full flex flex flex-col after:flex-1">
           <div class="flex-1">
             <div class="flex items-center justify-between h-16 py-2 px-4 sm:px-6 lg:px-8">
-              {% if tenant.logo_url %}
-                <img src="{{ tenant.logo_url }}" alt="{{ tenant.name }}" class="max-h-full max-w-[100px]" />
+              {% set brand_logo = brand.logo_url if brand else tenant.logo_url %}
+              {% set brand_name = brand.name if brand else "OpenSensor" %}
+              {% set brand_url = brand.application_url if brand else "https://opensensor.io" %}
+              {% if brand_logo %}
+                <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank">
+                  <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="max-h-full max-w-[100px]" />
+                </a>
               {% else %}
                 <div class="flex items-center space-x-2">
                   <div class="flex items-center space-x-1">
@@ -47,10 +52,9 @@
                     <div class="w-2 h-2 rounded-full bg-teal-400 animate-pulse" style="animation-delay: 0.2s"></div>
                     <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" style="animation-delay: 0.4s"></div>
                   </div>
-                  <a href="https://opensensor.io" rel="noreferrer noopener" target="_blank" class="text-xl font-bold bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent hover:from-teal-700 hover:to-emerald-700 transition-all">
-                    OpenSensor
+                  <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank" class="text-xl font-bold bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent hover:from-teal-700 hover:to-emerald-700 transition-all">
+                    {{ brand_name }}
                   </a>
-                  <span class="text-xs text-teal-600/60 font-medium">/ lightNVR</span>
                 </div>
               {% endif %}
             </div>

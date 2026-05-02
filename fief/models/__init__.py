@@ -3,6 +3,7 @@ from fief.models.admin_session_token import AdminSessionToken
 from fief.models.audit_log import AuditLog, AuditLogMessage
 from fief.models.authorization_code import AuthorizationCode
 from fief.models.base import Base
+from fief.models.brand import Brand
 from fief.models.client import Client, ClientType
 from fief.models.email_domain import EmailDomain
 from fief.models.email_template import EmailTemplate
@@ -36,6 +37,7 @@ __all__ = [
     "AdminAPIKey",
     "AdminSessionToken",
     "AuthorizationCode",
+    "Brand",
     "Client",
     "ClientType",
     "EmailDomain",

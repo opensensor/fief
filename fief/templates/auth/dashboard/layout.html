@@ -5,10 +5,12 @@
 {% block body %}
 <main>
   <div class="flex items-center justify-between h-16 py-2 px-4 sm:px-6 lg:px-8">
-    {% if tenant.logo_url %}
-    <img src="{{ tenant.logo_url }}" alt="{{ tenant.name }}" class="max-h-full max-w-[100px]" />
+    {% set brand_logo = brand.logo_url if brand else tenant.logo_url %}
+    {% set brand_name = brand.name if brand else tenant.name %}
+    {% if brand_logo %}
+    <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="max-h-full max-w-[100px]" />
     {% else %}
-    <span class="text-3xl text-accent font-bold">{{ tenant.name }}</span>
+    <span class="text-3xl text-accent font-bold">{{ brand_name }}</span>
     {% endif %}
   </div>
 

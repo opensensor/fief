@@ -3,6 +3,7 @@ from fief.repositories.admin_session_token import AdminSessionTokenRepository
 from fief.repositories.audit_log import AuditLogRepository
 from fief.repositories.authorization_code import AuthorizationCodeRepository
 from fief.repositories.base import get_repository
+from fief.repositories.brand import BrandRepository
 from fief.repositories.client import ClientRepository
 from fief.repositories.email_domain import EmailDomainRepository
 from fief.repositories.email_template import EmailTemplateRepository
@@ -31,6 +32,7 @@ __all__ = [
     "AdminSessionTokenRepository",
     "AuditLogRepository",
     "AuthorizationCodeRepository",
+    "BrandRepository",
     "ClientRepository",
     "EmailDomainRepository",
     "EmailTemplateRepository",
