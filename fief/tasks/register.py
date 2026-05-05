@@ -14,11 +14,15 @@ class OnAfterRegisterTask(TaskBase):
     async def run(self, user_id: str, brand_id: str | None = None):
         user = await self._get_user(uuid.UUID(user_id))
         tenant = await self._get_tenant(user.tenant_id)
+        brand = await self._get_brand(brand_id)
 
         # Send welcome email
         context = WelcomeContext(
             tenant=schemas.tenant.Tenant.model_validate(tenant),
             user=schemas.user.UserEmailContext.model_validate(user),
+            brand=schemas.brand.BrandEmailContext.model_validate(brand)
+            if brand is not None
+            else None,
         )
         async with self._get_email_subject_renderer() as email_subject_renderer:
             subject = await email_subject_renderer.render(
@@ -31,7 +35,7 @@ class OnAfterRegisterTask(TaskBase):
             )
 
         self.email_provider.send_email(
-            sender=await self._resolve_email_sender(tenant, brand_id),
+            sender=self._resolve_email_sender(tenant, brand),
             recipient=(user.email, None),
             subject=subject,
             html=html,

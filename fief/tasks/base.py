@@ -112,19 +112,19 @@ class TaskBase:
                 raise TaskError()
             return tenant
 
-    async def _get_brand(self, brand_id: UUID4) -> Brand | None:
+    async def _get_brand(self, brand_id: str | None) -> Brand | None:
+        if brand_id is None:
+            return None
         async with self.get_main_session() as session:
             repository = BrandRepository(session)
             return await repository.get_by_id(
-                brand_id, (selectinload(Brand.email_domain),)
+                uuid.UUID(brand_id), (selectinload(Brand.email_domain),)
             )
 
-    async def _resolve_email_sender(
-        self, tenant: Tenant, brand_id: str | None
+    @staticmethod
+    def _resolve_email_sender(
+        tenant: Tenant, brand: Brand | None
     ) -> tuple[str, str | None]:
-        if brand_id is None:
-            return tenant.get_email_sender()
-        brand = await self._get_brand(uuid.UUID(brand_id))
         if brand is None:
             return tenant.get_email_sender()
         return brand.get_email_sender(fallback_tenant=tenant)

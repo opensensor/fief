@@ -1,5 +1,6 @@
 from fief.schemas import (
     auth,
+    brand,
     client,
     email_template,
     generics,
@@ -19,6 +20,7 @@ from fief.schemas import (
 
 __all__ = [
     "auth",
+    "brand",
     "client",
     "email_template",
     "generics",

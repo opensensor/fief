@@ -22,7 +22,7 @@ class EmailTemplateInitializer:
         if await self.repository.get_by_type(EmailTemplateType.WELCOME) is None:
             welcome = EmailTemplate(
                 type=EmailTemplateType.WELCOME,
-                subject="Welcome to {{ tenant.name }}",
+                subject="Welcome to {{ brand.name if brand else tenant.name }}",
                 content=self._load_template("welcome.html"),
             )
             await self.repository.create(welcome)
@@ -30,7 +30,7 @@ class EmailTemplateInitializer:
         if await self.repository.get_by_type(EmailTemplateType.VERIFY_EMAIL) is None:
             verify_email = EmailTemplate(
                 type=EmailTemplateType.VERIFY_EMAIL,
-                subject="Verify your email for your {{ tenant.name }}'s account",
+                subject="Verify your email for your {{ brand.name if brand else tenant.name }} account",
                 content=self._load_template("verify_email.html"),
             )
             await self.repository.create(verify_email)
@@ -38,7 +38,7 @@ class EmailTemplateInitializer:
         if await self.repository.get_by_type(EmailTemplateType.FORGOT_PASSWORD) is None:
             forgot_password = EmailTemplate(
                 type=EmailTemplateType.FORGOT_PASSWORD,
-                subject="Reset your {{ tenant.name }}'s password",
+                subject="Reset your {{ brand.name if brand else tenant.name }} password",
                 content=self._load_template("forgot_password.html"),
             )
             await self.repository.create(forgot_password)

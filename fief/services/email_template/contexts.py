@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 from fief.db import AsyncSession
 from fief.repositories import TenantRepository, UserRepository
+from fief.schemas.brand import BrandEmailContext
 from fief.schemas.tenant import Tenant
 from fief.schemas.user import UserEmailContext
 from fief.services.email_template.types import EmailTemplateType
@@ -12,6 +13,7 @@ from fief.services.email_template.types import EmailTemplateType
 class EmailContext(BaseModel):
     tenant: Tenant
     user: UserEmailContext
+    brand: BrandEmailContext | None = None
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod

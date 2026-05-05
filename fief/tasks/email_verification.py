@@ -31,10 +31,14 @@ class OnEmailVerificationRequestedTask(TaskBase):
 
             user = email_verification.user
             tenant = await self._get_tenant(user.tenant_id)
+            brand = await self._get_brand(brand_id)
 
             context = VerifyEmailContext(
                 tenant=schemas.tenant.Tenant.model_validate(tenant),
                 user=schemas.user.UserEmailContext.model_validate(user),
+                brand=schemas.brand.BrandEmailContext.model_validate(brand)
+                if brand is not None
+                else None,
                 code=code,
             )
 
@@ -49,7 +53,7 @@ class OnEmailVerificationRequestedTask(TaskBase):
                 )
 
             self.email_provider.send_email(
-                sender=await self._resolve_email_sender(tenant, brand_id),
+                sender=self._resolve_email_sender(tenant, brand),
                 recipient=(email_verification.email, None),
                 subject=subject,
                 html=html,
