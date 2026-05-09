@@ -2,32 +2,109 @@
 
 {% extends "auth/base.html" %}
 
+{% set brand_logo = brand.logo_url if brand else tenant.logo_url %}
+{% set brand_name = brand.name if brand else tenant.name %}
+{% set brand_url = brand.application_url if brand else tenant.application_url %}
+
 {% block body %}
-<main>
-  <div class="flex items-center justify-between h-16 py-2 px-4 sm:px-6 lg:px-8">
-    {% set brand_logo = brand.logo_url if brand else tenant.logo_url %}
-    {% set brand_name = brand.name if brand else tenant.name %}
-    {% if brand_logo %}
-    <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="max-h-full max-w-[100px]" />
-    {% else %}
-    <span class="text-3xl text-accent font-bold">{{ brand_name }}</span>
-    {% endif %}
+<main class="relative min-h-screen overflow-hidden">
+  {# Gradient backdrop + decorative pattern (mirrors auth login page) #}
+  <div class="absolute inset-0 z-0 bg-gradient-to-br from-slate-50 via-teal-50/30 to-emerald-50/20">
+    <svg class="absolute inset-0 w-full h-full opacity-[0.12]" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="grid-dash" width="60" height="60" patternUnits="userSpaceOnUse">
+          <path d="M 60 0 L 0 0 0 60" fill="none" stroke="currentColor" stroke-width="0.5" class="text-teal-400"/>
+        </pattern>
+        <pattern id="dots-dash" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="currentColor" class="text-teal-500"/>
+        </pattern>
+        <linearGradient id="grad-dash" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#14b8a6;stop-opacity:0.22" />
+          <stop offset="100%" style="stop-color:#0d9488;stop-opacity:0.12" />
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#grid-dash)"/>
+      <rect width="100%" height="100%" fill="url(#dots-dash)"/>
+      <circle cx="8%" cy="15%" r="140" fill="url(#grad-dash)" class="animate-pulse"/>
+      <circle cx="92%" cy="80%" r="200" fill="url(#grad-dash)" class="animate-pulse" style="animation-delay: 1s"/>
+    </svg>
   </div>
 
-  <div class="w-full px-4 sm:px-6 lg:px-8 my-0 lg:my-8">
-    <div class="shadow-lg rounded-sm border border-slate-200 mb-8">
-      <div class="flex flex-col md:flex-row md:-mr-px">
-        {% include "auth/dashboard/sidebar.html" %}
-        <div class="grow">
-          <div class="p-6 space-y-6">
-            {% block content %}{% endblock %}
+  <div class="relative z-10 min-h-screen flex flex-col">
+    {# Top bar: brand logo (left) + identity pill (right) #}
+    <header class="w-full px-4 sm:px-6 lg:px-8 pt-5 pb-2">
+      <div class="max-w-6xl mx-auto flex items-center justify-between gap-4">
+        <a href="{{ brand_url or '#' }}" {% if brand_url %}rel="noreferrer noopener" target="_blank"{% endif %} class="flex items-center min-w-0">
+          {% if brand_logo %}
+            <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-10 w-auto max-w-[200px] object-contain" />
+          {% else %}
+            <div class="flex items-center space-x-2">
+              <div class="flex items-center space-x-1">
+                <div class="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></div>
+                <div class="w-2 h-2 rounded-full bg-teal-400 animate-pulse" style="animation-delay: 0.2s"></div>
+                <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" style="animation-delay: 0.4s"></div>
+              </div>
+              <span class="text-xl font-bold bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent">
+                {{ brand_name }}
+              </span>
+            </div>
+          {% endif %}
+        </a>
+
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/70 backdrop-blur-sm border border-teal-100/70 shadow-sm">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span class="text-xs sm:text-sm font-medium text-slate-700 truncate max-w-[180px] sm:max-w-xs">{{ user.email }}</span>
+        </div>
+      </div>
+    </header>
+
+    {# Page heading #}
+    <div class="w-full px-4 sm:px-6 lg:px-8 mt-2 mb-4">
+      <div class="max-w-6xl mx-auto">
+        <h1 class="text-2xl sm:text-3xl font-bold text-slate-800 tracking-tight">
+          {{ _("Account settings") }}
+        </h1>
+        <p class="text-sm text-slate-500 mt-1">
+          {{ _("Manage your profile, password, and preferences for your") }}
+          <span class="font-semibold text-teal-700">{{ brand_name }}</span>
+          {{ _("account.") }}
+        </p>
+      </div>
+    </div>
+
+    {# Main glass card #}
+    <div class="w-full px-4 sm:px-6 lg:px-8 flex-1">
+      <div class="max-w-6xl mx-auto">
+        <div class="relative overflow-hidden rounded-2xl border border-teal-100/60 shadow-2xl backdrop-blur-xl bg-white/80">
+          {# Gradient accent strip across the top of the card #}
+          <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-teal-500 via-emerald-400 to-teal-500"></div>
+          {# Subtle inner glow #}
+          <div class="absolute inset-0 bg-gradient-to-br from-teal-50/50 via-transparent to-emerald-50/30 pointer-events-none"></div>
+
+          <div class="relative flex flex-col md:flex-row">
+            {% include "auth/dashboard/sidebar.html" %}
+            <div class="grow min-w-0">
+              <div class="p-6 sm:p-8 space-y-6">
+                {% block content %}{% endblock %}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    {% if show_branding %}
+      <footer class="w-full px-4 sm:px-6 lg:px-8 py-8 mt-auto">
+        <div class="max-w-6xl mx-auto">
+          {{ branding.branding() }}
+        </div>
+      </footer>
+    {% else %}
+      <div class="h-8"></div>
+    {% endif %}
   </div>
-  {% if show_branding %}
-    {{ branding.branding() }}
-  {% endif %}
 </main>
 {% endblock %}

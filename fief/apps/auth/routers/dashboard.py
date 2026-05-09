@@ -7,6 +7,7 @@ from fief.apps.auth.forms.password import ChangePasswordForm
 from fief.apps.auth.forms.profile import PF, ChangeEmailForm, get_profile_form_class
 from fief.apps.auth.forms.verify_email import VerifyEmailForm
 from fief.apps.auth.responses import HXLocationResponse
+from fief.dependencies.brand import get_current_brand
 from fief.dependencies.branding import get_show_branding
 from fief.dependencies.session_token import (
     get_verified_email_user_from_session_token_or_verify,
@@ -16,7 +17,7 @@ from fief.dependencies.theme import get_current_theme
 from fief.dependencies.users import get_user_manager, get_user_update_model
 from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
-from fief.models import Tenant, Theme, User
+from fief.models import Brand, Tenant, Theme, User
 from fief.services.user_manager import (
     InvalidEmailVerificationCodeError,
     UserAlreadyExistsError,
@@ -32,6 +33,7 @@ class BaseContext(TypedDict):
     user: User
     tenant: Tenant
     theme: Theme
+    brand: Brand | None
     show_branding: bool
 
 
@@ -40,6 +42,7 @@ async def get_base_context(
     user: User = Depends(get_verified_email_user_from_session_token_or_verify),
     tenant: Tenant = Depends(get_current_tenant),
     theme: Theme = Depends(get_current_theme),
+    brand: Brand | None = Depends(get_current_brand),
     show_branding: bool = Depends(get_show_branding),
 ) -> BaseContext:
     return {
@@ -47,6 +50,7 @@ async def get_base_context(
         "user": user,
         "tenant": tenant,
         "theme": theme,
+        "brand": brand,
         "show_branding": show_branding,
     }
 

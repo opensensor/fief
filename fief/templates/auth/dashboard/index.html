@@ -7,43 +7,83 @@
 {% block head_title_content %}{{ _("Profile") }}{% endblock %}
 
 {% block content %}
-<h2 class="text-2xl text-slate-800 font-bold mb-5">{{ _("Profile") }}</h2>
-<section>
-  <h3 class="text-xl leading-snug text-slate-800 font-bold mb-1">{{ _("Email") }}</h3>
-  <div class="text-sm">{{ _("Manage your email address to receive important updates and notifications.") }}</div>
-  <div id="email-change" class="flex flex-wrap mt-5 items-center">
-      <div class="mr-2">
+<div class="space-y-6">
+  <header class="flex items-start gap-3">
+    <div class="hidden sm:flex h-10 w-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 items-center justify-center shadow-md shrink-0">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-white">
+        <path fill-rule="evenodd" d="M18.685 19.097A9.723 9.723 0 0021.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.723 9.723 0 003.065 7.097A9.716 9.716 0 0012 21.75a9.716 9.716 0 006.685-2.653zm-12.54-1.285A7.486 7.486 0 0112 15a7.486 7.486 0 015.855 2.812A8.224 8.224 0 0112 20.25a8.224 8.224 0 01-5.855-2.438zM15.75 9a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" clip-rule="evenodd" />
+      </svg>
+    </div>
+    <div>
+      <h2 class="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">{{ _("Profile") }}</h2>
+      <p class="text-sm text-slate-500 mt-0.5">{{ _("Update the personal information tied to your account.") }}</p>
+    </div>
+  </header>
+
+  {# Email card #}
+  <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div class="flex items-start justify-between gap-4 mb-1">
+      <div class="flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-teal-600">
+          <path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z" />
+          <path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z" />
+        </svg>
+        <h3 class="text-base font-semibold text-slate-800">{{ _("Email address") }}</h3>
+      </div>
+      <span class="hidden sm:inline-flex items-center text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+        <svg class="w-3 h-3 mr-1 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        {{ _("Verified") }}
+      </span>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">{{ _("Used for sign-in, account notifications, and password resets.") }}</p>
+
+    <div id="email-change" class="flex flex-wrap items-center gap-3">
+      <div class="flex-1 min-w-[200px] flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 font-mono text-sm text-slate-700">
         {{ user.email }}
       </div>
       <button
-        class="btn border-slate-200 hover:border-slate-300 shadow-sm text-primary"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-teal-700 bg-white border border-teal-200 hover:border-teal-400 hover:bg-teal-50 shadow-sm transition-colors"
         hx-get="{{ tenant.url_path_for(request, 'auth.dashboard:email_change') }}"
         hx-target="#email-change"
       >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+          <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+        </svg>
         {{ _("Change") }}
       </button>
-  </div>
-</section>
-{% if form.fields.form._fields | length > 0 %}
-<section>
-  <h3 class="text-xl leading-snug text-slate-800 font-bold mb-1">{{ _("Profile information") }}</h3>
-  <div class="text-sm">{{ _("Manage your profile information.") }}</div>
-  <form hx-boost="true" method="POST" class="w-full md:w-1/2">
-    <div class="space-y-4">
-      {% if success %}
-        {% call alerts.success() %}
-          {{ success }}
-        {% endcall %}
-      {% endif %}
-      {% for field in form.fields %}
-        {{ forms.form_field(field) }}
-      {% endfor %}
-      {{ forms.form_csrf_token(form) }}
-      {% call buttons.submit('btn') %}
-      {{ _("Update profile") }}
-      {% endcall %}
     </div>
-  </form>
-</section>
-{% endif %}
+  </section>
+
+  {# Profile information card (only when there are profile fields) #}
+  {% if form.fields.form._fields | length > 0 %}
+  <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div class="flex items-center gap-2 mb-1">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-teal-600">
+        <path fill-rule="evenodd" d="M7.5 6a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM3.751 20.105a8.25 8.25 0 0116.498 0 .75.75 0 01-.437.695A18.683 18.683 0 0112 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 01-.437-.695z" clip-rule="evenodd"/>
+      </svg>
+      <h3 class="text-base font-semibold text-slate-800">{{ _("Profile information") }}</h3>
+    </div>
+    <p class="text-sm text-slate-500 mb-5">{{ _("Manage the details that appear on your account.") }}</p>
+
+    <form hx-boost="true" method="POST" class="w-full md:max-w-xl">
+      <div class="space-y-4">
+        {% if success %}
+          {% call alerts.success() %}
+            {{ success }}
+          {% endcall %}
+        {% endif %}
+        {% for field in form.fields %}
+          {{ forms.form_field(field) }}
+        {% endfor %}
+        {{ forms.form_csrf_token(form) }}
+        <div class="pt-2">
+          {% call buttons.submit('btn bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all') %}
+            {{ _("Save changes") }}
+          {% endcall %}
+        </div>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+</div>
 {% endblock %}

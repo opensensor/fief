@@ -3,50 +3,58 @@
 {% import "macros/forms.html" as forms %}
 {% import "macros/verify_email.html" as verify_email %}
 
-<div class="w-full md:w-1/2">
-  <script type="text/hyperscript">
-    def submitForm()
-      htmx.trigger("#{{ form.meta.id }}", "form-submit")
-    end
-  </script>
-  <form
-    id="{{ form.meta.id }}"
-    method="POST"
-    action="{{ tenant.url_path_for(request, 'auth.dashboard:email_verify') }}"
-    hx-boost="true"
-    hx-push-url="false"
-    hx-target="#email-change"
-    hx-trigger="form-submit"
-    _="
-      on submit
-        halt the event
-        updateCodeValue()
-        submitForm()
+<div class="w-full">
+  <div class="rounded-lg border border-teal-200/70 bg-teal-50/40 p-4 sm:p-5">
+    <script type="text/hyperscript">
+      def submitForm()
+        htmx.trigger("#{{ form.meta.id }}", "form-submit")
       end
-    "
-  >
-    <div class="space-y-4">
-      {% call alerts.info() %}
-        {{ _("To complete the email change, please check your email for the verification code. Enter the code below to verify your new email address.") }}
-      {% endcall %}
-      <div class="mx-0 md:mx-4">
-        {{ verify_email.form(form, code_length) }}
+    </script>
+    <form
+      id="{{ form.meta.id }}"
+      method="POST"
+      action="{{ tenant.url_path_for(request, 'auth.dashboard:email_verify') }}"
+      hx-boost="true"
+      hx-push-url="false"
+      hx-target="#email-change"
+      hx-trigger="form-submit"
+      _="
+        on submit
+          halt the event
+          updateCodeValue()
+          submitForm()
+        end
+      "
+    >
+      <div class="space-y-4">
+        <div class="flex items-center gap-2 text-sm font-medium text-teal-800">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z" clip-rule="evenodd"/>
+          </svg>
+          {{ _("Verify your new email address") }}
+        </div>
+        {% call alerts.info() %}
+          {{ _("To complete the email change, please check your email for the verification code. Enter the code below to verify your new email address.") }}
+        {% endcall %}
+        <div class="mx-0 md:mx-2">
+          {{ verify_email.form(form, code_length) }}
+        </div>
+        {% if error %}
+          {% call alerts.error() %}
+            {{ error }}
+          {% endcall %}
+        {% endif %}
+        <div class="flex flex-wrap gap-2 pt-1">
+          {% call buttons.submit('btn bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all') %}
+            {{ _("Verify my email") }}
+          {% endcall %}
+          <a
+            href="{{ tenant.url_path_for(request, 'auth.dashboard:profile') }}"
+            class="btn border-slate-200 hover:border-slate-300 text-slate-600 bg-white"
+            hx-target="body"
+          >{{ _("Cancel") }}</a>
+        </div>
       </div>
-      {% if error %}
-        {% call alerts.error() %}
-          {{ error }}
-        {% endcall %}
-      {% endif %}
-      <div class="flex gap-2">
-        <a
-          href="{{ tenant.url_path_for(request, 'auth.dashboard:profile') }}"
-          class="btn border-slate-200 hover:border-slate-300 text-slate-600"
-          hx-target="body"
-        >{{ _("Cancel") }}</a>
-        {% call buttons.submit('btn') %}
-          {{ _("Verify my email") }}
-        {% endcall %}
-    </div>
-    </div>
-  </form>
+    </form>
+  </div>
 </div>
