@@ -182,6 +182,23 @@ class Settings(BaseSettings):
     auth_failure_min_latency_ms: int = 150
     trusted_proxy_count: int = 1
 
+    # HIBP breached-password check (T2 of SEC-2).
+    # Layered defence on top of the existing zxcvbn validator: when a password
+    # is being SET (register / change / reset / admin update), its SHA-1 prefix
+    # is queried against the HaveIBeenPwned k-anonymity range API and rejected
+    # if the count is at least the effective threshold (per-tenant override or
+    # ``breached_password_default_threshold``). Fail-open on outage / timeout /
+    # 429 / non-2xx so a HIBP blip never locks users out of password sets. The
+    # full kill-switch is ``breached_password_check_enabled`` (default ON).
+    # Suffix prefix responses are cached in Redis for
+    # ``breached_password_cache_ttl_s`` seconds under the ``bpc:`` namespace.
+    breached_password_check_enabled: bool = True
+    breached_password_default_threshold: int = 1
+    breached_password_api_url: str = "https://api.pwnedpasswords.com/range"
+    breached_password_user_agent: str = "opensensor-auth/1.0"
+    breached_password_timeout_ms: int = 1000
+    breached_password_cache_ttl_s: int = 86400
+
     branding: bool = True
     override_templates_directory: DirectoryPath | None = None
 
