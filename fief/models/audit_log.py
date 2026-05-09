@@ -48,6 +48,17 @@ class AuditLogMessage(StrEnum):
     USER_SESSION_REVOKED = "USER_SESSION_REVOKED"
     USER_SESSIONS_SIGNED_OUT_OTHERS = "USER_SESSIONS_SIGNED_OUT_OTHERS"
     USER_SESSIONS_AUTO_REVOKED = "USER_SESSIONS_AUTO_REVOKED"
+    # MFA-2 passkey / WebAuthn lifecycle events.
+    # `USER_PASSKEY_VERIFY_FAILED.extra`:
+    #   - reason: "invalid_signature" | "credential_not_found" | "challenge_expired"
+    # `USER_PASSKEY_SIGN_COUNT_ROLLBACK.extra`:
+    #   - credential_id_hex: str, stored: int, received: int
+    #   (assertion's sign_count <= stored — possible cloned authenticator)
+    USER_PASSKEY_REGISTERED = "USER_PASSKEY_REGISTERED"
+    USER_PASSKEY_DELETED = "USER_PASSKEY_DELETED"
+    USER_PASSKEY_VERIFIED = "USER_PASSKEY_VERIFIED"
+    USER_PASSKEY_VERIFY_FAILED = "USER_PASSKEY_VERIFY_FAILED"
+    USER_PASSKEY_SIGN_COUNT_ROLLBACK = "USER_PASSKEY_SIGN_COUNT_ROLLBACK"
     OAUTH_PROVIDER_USER_ACCESS_TOKEN_GET = "OAUTH_PROVIDER_USER_ACCESS_TOKEN_GET"
 
 
