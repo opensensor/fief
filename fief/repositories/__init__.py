@@ -22,6 +22,7 @@ from fief.repositories.tenant import TenantRepository
 from fief.repositories.theme import ThemeRepository
 from fief.repositories.user import UserRepository
 from fief.repositories.user_field import UserFieldRepository
+from fief.repositories.user_lockout import UserLockoutRepository
 from fief.repositories.user_mfa_recovery_code import UserMfaRecoveryCodeRepository
 from fief.repositories.user_permission import UserPermissionRepository
 from fief.repositories.user_role import UserRoleRepository
@@ -53,6 +54,7 @@ __all__ = [
     "ThemeRepository",
     "UserRepository",
     "UserFieldRepository",
+    "UserLockoutRepository",
     "UserMfaRecoveryCodeRepository",
     "UserPermissionRepository",
     "UserRoleRepository",
