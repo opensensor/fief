@@ -189,22 +189,32 @@ Wave 9 (Rollout)
   - `UserTotpSecretRepository`: `get_by_user_id`, `get_confirmed_by_user_id`, `delete_by_user_id`.
   - `UserMfaRecoveryCodeRepository`: `list_by_user_id` (with `used_at IS NULL` flag), `delete_by_user_id`, `mark_used`.
 - **validation:** Imported by services in T11/T12 without circular-import errors; basic CRUD works against an in-memory SQLite test DB if the repo testing harness exists, else verified via T23 unit tests.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: TDD green. Implemented both repositories following the project's `BaseRepository` + `UUIDRepositoryMixin` pattern (mirrors `fief/repositories/email_verification.py` for the `delete_by_user_id` shape and `fief/repositories/refresh_token.py` for the base inheritance). `UserTotpSecretRepository.get_confirmed_by_user_id` filters on `confirmed_at IS NOT NULL`; `UserMfaRecoveryCodeRepository.list_by_user_id` keyword-only `only_unused` flag adds `used_at IS NULL`; `mark_used` stamps `datetime.now(timezone.utc)` and persists via `BaseRepository.update`. Exports added alphabetically in `fief/repositories/__init__.py` (`UserMfaRecoveryCodeRepository` between `UserFieldRepository` and `UserPermissionRepository`; `UserTotpSecretRepository` between `UserRoleRepository` and `WebhookRepository`).
+  - Smoke test `tests/repositories/test_mfa_repos_smoke.py` (new) covers: package-level importability, `BaseRepository` subclass, correct `model = ...` binding, and method-signature inspection (async + parameter names + keyword-only + default for `only_unused`). RED -> GREEN: 8 fail (ImportError) -> 8 pass. DB-backed CRUD is intentionally deferred to T23 service tests (the project's `tests/conftest.py` requires a live Postgres + several optional dependencies that aren't available to a single-task agent).
 - **files edited/created:**
+  - `fief/repositories/user_totp_secret.py` (new)
+  - `fief/repositories/user_mfa_recovery_code.py` (new)
+  - `fief/repositories/__init__.py` (modified — alphabetical export entries)
+  - `tests/repositories/__init__.py` (new — empty package marker)
+  - `tests/repositories/test_mfa_repos_smoke.py` (new)
 
 ### T10: WTForms — TOTP confirm / verify / disable / recover
 - **depends_on:** [T8]
 - **location:** `fief/apps/auth/forms/mfa.py` (new)
 - **description:** Four `CSRFBaseForm`-derived classes:
-  - `TotpEnrollConfirmForm` (single 6-digit `code` IntegerField with `Length(6,6)`, numeric validator)
+  - `TotpEnrollConfirmForm` (single 6-digit `code` StringField with a `^\d{6}$` regex validator — kept as text rather than IntegerField so leading zeros like `000123` are preserved)
   - `TotpVerifyForm` (same shape; reused for login challenge)
-  - `TotpDisableForm` (current password StringField + 6-digit code OR recovery code)
+  - `TotpDisableForm` (current password PasswordField + code field accepting either a 6-digit TOTP or an `XXXX-XXXX`/`XXXXXXXX` recovery code)
   - `MfaRecoveryForm` (recovery code field — accepts both `xxxx-xxxx` and `xxxxxxxx`)
 - **validation:** Forms render with the existing `forms.html` macros via T17/T18 templates; validation rejects malformed input.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: TDD green. Added `fief/apps/auth/forms/mfa.py` with the four `CSRFBaseForm` subclasses described above; chose `StringField` + `Regexp(r"^\d{6}$")` over `IntegerField` to preserve TOTP leading zeros. `TotpDisableForm.code` regex `^(\d{6}|[A-Za-z0-9]{4}-?[A-Za-z0-9]{4})$` accepts either a TOTP or a recovery code (dash optional). 46 unit tests in `tests/test_apps_auth_forms_mfa.py` cover valid/invalid shapes, leading zeros, dashed/undashed/mixed-case recovery codes, missing fields, and CSRF protection wiring. Followed the import style from `fief/apps/auth/forms/auth.py` (`from wtforms import …, validators` + `from fief.forms import CSRFBaseForm`).
 - **files edited/created:**
+  - `fief/apps/auth/forms/mfa.py` (new)
+  - `tests/test_apps_auth_forms_mfa.py` (new)
 
 ### T11: TotpService
 - **depends_on:** [T1, T2, T9]

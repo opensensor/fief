@@ -22,8 +22,10 @@ from fief.repositories.tenant import TenantRepository
 from fief.repositories.theme import ThemeRepository
 from fief.repositories.user import UserRepository
 from fief.repositories.user_field import UserFieldRepository
+from fief.repositories.user_mfa_recovery_code import UserMfaRecoveryCodeRepository
 from fief.repositories.user_permission import UserPermissionRepository
 from fief.repositories.user_role import UserRoleRepository
+from fief.repositories.user_totp_secret import UserTotpSecretRepository
 from fief.repositories.webhook import WebhookRepository
 from fief.repositories.webhook_log import WebhookLogRepository
 
@@ -51,8 +53,10 @@ __all__ = [
     "ThemeRepository",
     "UserRepository",
     "UserFieldRepository",
+    "UserMfaRecoveryCodeRepository",
     "UserPermissionRepository",
     "UserRoleRepository",
+    "UserTotpSecretRepository",
     "WebhookRepository",
     "WebhookLogRepository",
     "get_repository",
