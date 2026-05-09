@@ -305,7 +305,16 @@ class TestPostRegister:
         test_client_auth_csrf: httpx.AsyncClient,
         csrf_token: str,
         test_data: TestData,
+        monkeypatch: pytest.MonkeyPatch,
     ):
+        # SEC-1 T13 made ``register_silent_on_email_collision`` default to
+        # ``True`` for production enumeration parity. This legacy test
+        # asserts the dev/staging path (flag off) where the explicit
+        # ``user_already_exists`` error is preserved. The silent-on
+        # behaviour is covered in
+        # ``tests/apps/auth/routers/test_register_rate_limit.py``.
+        monkeypatch.setattr(settings, "register_silent_on_email_collision", False)
+
         login_session = test_data["login_sessions"]["default"]
         registration_session = test_data["registration_sessions"]["default_password"]
         cookies = {}
