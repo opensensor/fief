@@ -61,6 +61,25 @@
       </div>
     </header>
 
+    {# T16: tenant-level MFA enforcement banner. Rendered whenever the
+       current tenant requires MFA and the signed-in user hasn't enrolled
+       yet — independent of the per-page query string. #}
+    {% if mfa_enforcement_active %}
+      <div class="w-full px-4 sm:px-6 lg:px-8 mt-6">
+        <div class="max-w-6xl mx-auto">
+          <div role="alert" class="flex items-start gap-3 rounded-xl border border-amber-300/70 bg-amber-50/90 backdrop-blur-sm px-4 py-3 shadow-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-amber-600 mt-0.5 shrink-0">
+              <path fill-rule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd" />
+            </svg>
+            <div class="text-sm text-amber-900">
+              <p class="font-semibold">{{ _("Two-factor authentication is required") }}</p>
+              <p class="mt-0.5 text-amber-800">{{ _("Your account requires two-factor authentication. Please enroll to continue using your account.") }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
     {# Page heading #}
     <div class="w-full px-4 sm:px-6 lg:px-8 mt-6 sm:mt-10 mb-6">
       <div class="max-w-6xl mx-auto">

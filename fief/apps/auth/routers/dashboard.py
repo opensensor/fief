@@ -11,6 +11,7 @@ from fief.apps.auth.responses import HXLocationResponse
 from fief.dependencies.brand import get_current_brand
 from fief.dependencies.branding import get_show_branding
 from fief.dependencies.security import (
+    enforce_tenant_mfa_required,
     get_recovery_code_service,
     get_totp_service,
 )
@@ -47,6 +48,7 @@ class BaseContext(TypedDict):
     theme: Theme
     brand: Brand | None
     show_branding: bool
+    mfa_enforcement_active: bool
 
 
 async def get_base_context(
@@ -57,6 +59,12 @@ async def get_base_context(
     brand: Brand | None = Depends(get_current_brand),
     show_branding: bool = Depends(get_show_branding),
 ) -> BaseContext:
+    # T16: tenant-level MFA enforcement. Raises a 307 redirect to the
+    # enrollment landing when ``tenant.mfa_required and not
+    # user.mfa_enabled`` AND the request is not already on a
+    # ``/security/mfa*`` path. Returns ``True`` when the gate is active
+    # for this user so the layout can render an "enroll now" banner.
+    mfa_enforcement_active = enforce_tenant_mfa_required(request, user, tenant)
     return {
         "request": request,
         "user": user,
@@ -64,6 +72,7 @@ async def get_base_context(
         "theme": theme,
         "brand": brand,
         "show_branding": show_branding,
+        "mfa_enforcement_active": mfa_enforcement_active,
     }
 
 

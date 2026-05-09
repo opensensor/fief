@@ -217,6 +217,36 @@ async def login(
             login_session.mfa_locked_until = None
             await login_session_repository.update(login_session)
 
+        # T16: tenant-level enforcement. When the tenant requires MFA but
+        # the user hasn't enrolled yet, issue a session cookie (so they
+        # can navigate the dashboard normally to enroll) and redirect to
+        # the enrollment landing instead of the usual post-login flow.
+        # The dashboard route guard (also wired in T16) will keep funneling
+        # them back here until they enroll.
+        if tenant.mfa_required and not user.mfa_enabled:
+            try:
+                enroll_path = tenant.url_path_for(
+                    request, "auth.dashboard:mfa_index"
+                )
+            except Exception:
+                # Defensive fallback if the dashboard router isn't mounted
+                # (e.g. in a stripped-down test app). The dashboard always
+                # mounts ``/security/mfa`` as the enrollment landing.
+                path_prefix = "" if tenant.default else f"/{tenant.slug}"
+                enroll_path = f"{path_prefix}/security/mfa"
+            sep = "&" if "?" in enroll_path else "?"
+            response = RedirectResponse(
+                f"{enroll_path}{sep}mfa_required=1",
+                status_code=status.HTTP_302_FOUND,
+            )
+            response = await authentication_flow.rotate_session_token(
+                response, user.id, session_token=session_token
+            )
+            response = await authentication_flow.set_login_hint(
+                response, str(user.email)
+            )
+            return response
+
         # If the user has MFA enabled, defer issuing a session cookie until
         # the TOTP/recovery challenge succeeds. Mark the login session with
         # the pending user id so the verify route (T14) can identify the

@@ -320,9 +320,20 @@ Wave 9 (Rollout)
 - **location:** `fief/apps/auth/routers/auth.py` (login route) + `fief/apps/auth/routers/dashboard.py` (`get_base_context` or a new dependency)
 - **description:** When `tenant.mfa_required is true` and the user is *not* `mfa_enabled`, after primary credentials succeed, redirect to `/security/mfa` (the enrollment landing) with a flash banner "Your account requires two-factor authentication. Please enroll to continue." The user can use the dashboard normally for enrollment, but every dashboard route checks `tenant.mfa_required and not user.mfa_enabled` via a small dependency — if true and the request path is not `/security/mfa/*`, force redirect.
 - **validation:** Toggle `mfa_required=true` on a test tenant; existing user without MFA gets the redirect; user already enrolled is unaffected.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09 — Added `enforce_tenant_mfa_required(request, user, tenant)` helper to `fief/dependencies/security.py`. When `tenant.mfa_required and not user.mfa_enabled` it raises a 307 redirect to `tenant.url_for(request, "auth.dashboard:mfa_index")` with a `?mfa_required=1` query flag, EXCEPT when the request path already contains `/security/mfa` (so the enrollment flow itself is allowed through). Returns `True` in the allow-listed case so the layout can show the enforcement banner; returns `False` (no-op) when the gate is inactive.
+  - 2026-05-09 — Wired the gate into `get_base_context` in `fief/apps/auth/routers/dashboard.py` and added `mfa_enforcement_active: bool` to `BaseContext`. Because every gated dashboard route (`auth.dashboard:profile`, `email_change`, `email_verify`, `password`, `mfa_recovery_regen`) already depends on `get_base_context`, the gate is uniformly applied without per-route changes. The MFA setup routes (`/security/mfa`, `/security/mfa/totp/{begin,confirm,disable}`) also use `get_base_context` but pass through via the path allow-list.
+  - 2026-05-09 — Added the tenant-gate branch to the `/login` POST handler in `fief/apps/auth/routers/auth.py`, ABOVE the existing per-user `user.mfa_enabled` branch. When `tenant.mfa_required and not user.mfa_enabled`, the route issues the session cookie via `rotate_session_token()` (so the user can navigate the dashboard to enroll) and redirects to `tenant.url_path_for("auth.dashboard:mfa_index")` with `?mfa_required=1`. The per-user MFA branch still wins when the user IS enrolled, so an already-enrolled user always gets the TOTP challenge first regardless of tenant policy.
+  - 2026-05-09 — Added a yellow banner block in `fief/templates/auth/dashboard/layout.html` guarded by `{% if mfa_enforcement_active %}`. Renders above the page heading on every dashboard page when the gate is active, including the enrollment landing itself.
+  - 2026-05-09 — Added `tests/apps/auth/routers/test_mfa_enforcement.py` (6 tests, all green): tenant-not-required is unchanged; tenant-required redirects dashboard index to `/security/mfa?mfa_required=1`; tenant-required allows `/security/mfa` through with `mfa_enforcement_active=True`; already-enrolled user is unaffected; `/login` POST with tenant-required + un-enrolled user issues a session cookie AND redirects to enrollment; `/login` POST with already-enrolled user still takes the per-user MFA challenge branch (no session cookie, redirect to `/mfa/totp`).
+  - 2026-05-09 — Regression: re-ran `tests/apps/auth/routers/test_dashboard_mfa.py` (8 tests), `tests/apps/auth/routers/test_mfa_challenge.py` (11 tests), `tests/apps/auth/routers/test_login_mfa_branch.py` (4 tests) — all 23 still green.
 - **files edited/created:**
+  - `fief/dependencies/security.py` (added `enforce_tenant_mfa_required` helper + path allow-list)
+  - `fief/apps/auth/routers/dashboard.py` (wired gate into `get_base_context`; added `mfa_enforcement_active` to `BaseContext`)
+  - `fief/apps/auth/routers/auth.py` (new tenant-gate branch in `/login` POST above the per-user MFA branch)
+  - `fief/templates/auth/dashboard/layout.html` (yellow banner guarded by `mfa_enforcement_active`)
+  - `tests/apps/auth/routers/test_mfa_enforcement.py` (new test file — 6 cases)
 
 ### T17: Setup templates
 - **depends_on:** [T13]
