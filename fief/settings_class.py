@@ -146,6 +146,14 @@ class Settings(BaseSettings):
     password_min_length: int = 8
     password_min_score: int = Field(ge=0, le=4, default=3)
 
+    # MFA TOTP secret encryption (T4 of MFA-1).
+    # Either ``mfa_secret_encryption_key`` (single key) or
+    # ``mfa_secret_encryption_keys`` (rotation list, current key first) must
+    # be populated for the app to start. The list form wins if both are set.
+    # ``mfa_secret_encryption_keys`` accepts a comma-separated env value.
+    mfa_secret_encryption_key: str | None = None
+    mfa_secret_encryption_keys: list[str] | None = None
+
     branding: bool = True
     override_templates_directory: DirectoryPath | None = None
 
@@ -183,6 +191,24 @@ class Settings(BaseSettings):
     def validate_empty_port(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
+        return value
+
+    @field_validator("mfa_secret_encryption_keys", mode="before")
+    @classmethod
+    def parse_mfa_secret_encryption_keys(
+        cls, value: str | list[str] | None
+    ) -> list[str] | None:
+        """Accept a comma-separated env string and return a list of keys.
+
+        An empty/whitespace-only env value yields ``None`` (meaning "not set"),
+        so the lifespan check (T4) treats it the same as the env var being
+        absent. Whitespace around individual keys is stripped.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            keys = [item.strip() for item in value.split(",") if item.strip()]
+            return keys or None
         return value
 
     def get_database_connection_parameters(

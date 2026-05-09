@@ -20,6 +20,18 @@ class LifespanState(TypedDict):
 async def lifespan(app: FastAPI) -> AsyncGenerator[LifespanState, None]:
     init_logger()
 
+    # T4 (MFA-1): require a Fernet key for the TOTP secret column at boot.
+    # The MFA routes (T13/T14) ship unconditionally once merged, so this
+    # check runs unconditionally — there is no "is MFA wired up?" flag to
+    # gate it on.
+    if settings.mfa_secret_encryption_keys:
+        n_keys = len(settings.mfa_secret_encryption_keys)
+    elif settings.mfa_secret_encryption_key:
+        n_keys = 1
+    else:
+        raise EnvironmentError("MFA_SECRET_ENCRYPTION_KEY must be set")
+    logger.info("MFA encryption: %d active key(s)", n_keys)
+
     main_engine = create_main_engine()
 
     logger.info("Fief Server started", version=__version__)

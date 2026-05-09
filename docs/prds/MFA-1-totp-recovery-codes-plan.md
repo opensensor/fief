@@ -119,9 +119,16 @@ Wave 9 (Rollout)
 - **location:** `fief/settings.py`, `fief/app/initializer.py` (or wherever the FastAPI lifespan/startup hook lives)
 - **description:** Add `mfa_secret_encryption_key: str | None = None` and `mfa_secret_encryption_keys: list[str] | None = None` (latter wins if set; comma-separated env). Validation runs **unconditionally at app startup** (lifespan event) — once the MFA routes are merged, they are always registered, so guarding the check on "are MFA routes registered" is meaningless. Raise `EnvironmentError("MFA_SECRET_ENCRYPTION_KEY must be set")` immediately if neither env is populated. No tenant flag here — it lives on the model in T7.
 - **validation:** App boot fails fast with a clear message when neither env is set; passes when set. Boot logs include "MFA encryption: 1 active key" (or N if rotation list).
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: Added `mfa_secret_encryption_key` and `mfa_secret_encryption_keys` to `fief/settings_class.py` (the Pydantic Settings class behind `fief/settings.py`'s loader), with a `field_validator` that parses the env value of `MFA_SECRET_ENCRYPTION_KEYS` as a comma-separated list (whitespace-stripped, empty entries discarded; empty list collapses to `None`).
+  - Wired the unconditional MFA-key check into `fief/lifespan.py` (the project's actual FastAPI lifespan hook — `fief/app/initializer.py` does not exist; only the top-level `fief.app:app` mounts this lifespan, so the api/auth/dashboard sub-apps used by existing test fixtures are unaffected). Raises `EnvironmentError("MFA_SECRET_ENCRYPTION_KEY must be set")` if neither env is populated; otherwise logs `MFA encryption: %d active key(s)`.
+  - Added `tests/test_settings_mfa.py` (8 tests: field presence, comma-parse + whitespace, single-key path, lifespan raise on absent env, lifespan success on single key, lifespan success on rotation list). Tests RED → GREEN; all 8 passing.
+  - Smoke verified: `MFA_SECRET_ENCRYPTION_KEY=test-key` populates the single field; `MFA_SECRET_ENCRYPTION_KEYS="key-a,key-b,key-c"` parses to a 3-element list; absent env yields `None` for both (caught at lifespan instead of at Settings construction so existing test fixtures keep working).
 - **files edited/created:**
+  - `fief/settings_class.py` (modified — fields + validator)
+  - `fief/lifespan.py` (modified — startup check + log)
+  - `tests/test_settings_mfa.py` (new)
 
 ### T5: Alembic migration — new tables + columns
 - **depends_on:** []
