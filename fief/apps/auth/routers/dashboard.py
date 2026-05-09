@@ -299,6 +299,13 @@ async def mfa_index(
             **context,
             "current_route": "auth.dashboard:mfa_index",
             "mfa_enabled": user.mfa_enabled,
+            # Render an empty disable form on initial GET so the password +
+            # code fields are visible alongside the danger-zone button. The
+            # POST handler re-renders with `form` populated on validation
+            # failure, so the same template handles both paths.
+            "form": TotpDisableForm(meta={"request": request})
+            if user.mfa_enabled
+            else None,
         },
     )
 
