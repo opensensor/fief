@@ -22,27 +22,25 @@
 
   {# Email card #}
   <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow">
-    <div class="flex items-start justify-between gap-4 mb-1">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-teal-600">
-          <path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z" />
-          <path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z" />
-        </svg>
-        <h3 class="text-base font-semibold text-slate-800">{{ _("Email address") }}</h3>
-      </div>
-      <span class="hidden sm:inline-flex items-center text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
-        <svg class="w-3 h-3 mr-1 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-        {{ _("Verified") }}
-      </span>
+    <div class="flex items-center gap-2 mb-1 min-w-0">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-teal-600 shrink-0">
+        <path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z" />
+        <path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z" />
+      </svg>
+      <h3 class="text-base font-semibold text-slate-800 whitespace-nowrap">{{ _("Email address") }}</h3>
     </div>
     <p class="text-sm text-slate-500 mb-4">{{ _("Used for sign-in, account notifications, and password resets.") }}</p>
 
-    <div id="email-change" class="flex flex-wrap items-center gap-3">
-      <div class="flex-1 min-w-[200px] flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 font-mono text-sm text-slate-700">
-        {{ user.email }}
+    <div id="email-change" class="flex flex-wrap items-center gap-2">
+      <div class="inline-flex items-center max-w-full px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 font-mono text-sm text-slate-700 truncate" title="{{ user.email }}">
+        <span class="truncate">{{ user.email }}</span>
       </div>
+      <span class="inline-flex items-center text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+        <svg class="w-3 h-3 mr-1 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        {{ _("Verified") }}
+      </span>
       <button
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-teal-700 bg-white border border-teal-200 hover:border-teal-400 hover:bg-teal-50 shadow-sm transition-colors"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-teal-700 bg-white border border-teal-200 hover:border-teal-400 hover:bg-teal-50 shadow-sm transition-colors"
         hx-get="{{ tenant.url_path_for(request, 'auth.dashboard:email_change') }}"
         hx-target="#email-change"
       >

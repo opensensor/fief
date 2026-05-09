@@ -10,17 +10,17 @@
 <main class="relative min-h-screen overflow-hidden">
   {# Gradient backdrop + decorative pattern (mirrors auth login page) #}
   <div class="absolute inset-0 z-0 bg-gradient-to-br from-slate-50 via-teal-50/30 to-emerald-50/20">
-    <svg class="absolute inset-0 w-full h-full opacity-[0.12]" xmlns="http://www.w3.org/2000/svg">
+    <svg class="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <pattern id="grid-dash" width="60" height="60" patternUnits="userSpaceOnUse">
-          <path d="M 60 0 L 0 0 0 60" fill="none" stroke="currentColor" stroke-width="0.5" class="text-teal-400"/>
+        <pattern id="grid-dash" width="64" height="64" patternUnits="userSpaceOnUse">
+          <path d="M 64 0 L 0 0 0 64" fill="none" stroke="currentColor" stroke-width="0.5" class="text-teal-400 opacity-[0.08]"/>
         </pattern>
-        <pattern id="dots-dash" width="20" height="20" patternUnits="userSpaceOnUse">
-          <circle cx="2" cy="2" r="1" fill="currentColor" class="text-teal-500"/>
+        <pattern id="dots-dash" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="0.6" fill="currentColor" class="text-teal-500 opacity-[0.05]"/>
         </pattern>
         <linearGradient id="grad-dash" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:#14b8a6;stop-opacity:0.22" />
-          <stop offset="100%" style="stop-color:#0d9488;stop-opacity:0.12" />
+          <stop offset="0%" style="stop-color:#14b8a6;stop-opacity:0.18" />
+          <stop offset="100%" style="stop-color:#0d9488;stop-opacity:0.10" />
         </linearGradient>
       </defs>
       <rect width="100%" height="100%" fill="url(#grid-dash)"/>
@@ -62,7 +62,7 @@
     </header>
 
     {# Page heading #}
-    <div class="w-full px-4 sm:px-6 lg:px-8 mt-2 mb-4">
+    <div class="w-full px-4 sm:px-6 lg:px-8 mt-6 sm:mt-10 mb-6">
       <div class="max-w-6xl mx-auto">
         <h1 class="text-2xl sm:text-3xl font-bold text-slate-800 tracking-tight">
           {{ _("Account settings") }}
