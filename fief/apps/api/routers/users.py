@@ -45,8 +45,12 @@ from fief.repositories import (
     UserRepository,
 )
 from fief.schemas.generics import PaginatedResults
-from fief.dependencies.security import get_totp_service
+from fief.dependencies.security import (
+    get_account_lockout_service,
+    get_totp_service,
+)
 from fief.services.acr import ACR
+from fief.services.security.account_lockout import AccountLockoutService
 from fief.services.security.totp import TotpService
 from fief.services.user_manager import (
     InvalidPasswordError,
@@ -206,6 +210,50 @@ async def force_reenroll_mfa(
     await totp_service.disable(user)
     audit_logger(
         AuditLogMessage.USER_MFA_FORCE_REENROLLED,
+        subject_user_id=user.id,
+        extra={
+            "admin_user_id": (
+                str(audit_logger.admin_user_id)
+                if audit_logger.admin_user_id is not None
+                else None
+            ),
+        },
+    )
+
+
+@router.post(
+    "/{id:uuid}/unlock",
+    name="users:unlock",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def unlock_account(
+    user: User = Depends(get_user_by_id_or_404),
+    account_lockout: AccountLockoutService = Depends(get_account_lockout_service),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> None:
+    """Clear a user's SEC-1 account lockout (admin action).
+
+    Wipes ``failed_count`` and ``locked_until`` via
+    :meth:`AccountLockoutService.reset` (which delegates to
+    ``UserLockoutRepository.clear`` — itself a no-op when no row
+    exists, so this whole endpoint is safe to call on a user that has
+    never been locked).
+
+    Emits :data:`AuditLogMessage.USER_ACCOUNT_ADMIN_UNLOCKED` with
+    ``subject_user_id`` set to the target user and an ``extra``
+    payload carrying ``admin_user_id`` for forensic attribution. The
+    audit entry is emitted unconditionally (even on idempotent calls
+    where no lockout state existed) so support workflows have a
+    consistent record of every admin "unlock" action.
+
+    The operation is idempotent: calling it on a user whose account is
+    not locked still returns 204.
+    """
+
+    await account_lockout.reset(user)
+    audit_logger(
+        AuditLogMessage.USER_ACCOUNT_ADMIN_UNLOCKED,
         subject_user_id=user.id,
         extra={
             "admin_user_id": (
