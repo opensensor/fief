@@ -5,7 +5,7 @@ import urllib.parse
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import AnyUrl
 from sqlalchemy import select
 
@@ -34,6 +34,7 @@ from fief.dependencies.auth import (
     has_valid_session_token,
 )
 from fief.dependencies.authentication_flow import get_authentication_flow
+from fief.dependencies.brand import get_current_brand
 from fief.dependencies.client_ip import ClientIpInfo, get_client_ip_info
 from fief.dependencies.logger import get_audit_logger
 from fief.dependencies.login_hint import LoginHint, get_login_hint
@@ -45,6 +46,7 @@ from fief.dependencies.security import (
     get_rate_limiter,
     get_recovery_code_service,
     get_totp_service,
+    get_webauthn_service,
 )
 from fief.dependencies.session_token import (
     get_session_token,
@@ -60,6 +62,7 @@ from fief.locale import gettext_lazy as _
 from fief.logger import AuditLogger
 from fief.models import (
     AuditLogMessage,
+    Brand,
     Client,
     LoginSession,
     OAuthProvider,
@@ -80,16 +83,25 @@ from fief.services.security.account_lockout import (
     AccountLocked,
     AccountLockoutService,
 )
+from fief.services.security.device_sessions import DeviceSessionsService
 from fief.services.security.rate_limiter import (
     RateLimiter,
     RateLimitExceeded,
     RateLimitWindow,
 )
-from fief.services.security.device_sessions import DeviceSessionsService
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService, VerifyResult
+from fief.services.security.webauthn import (
+    ChallengeExpired,
+    CredentialNotFound,
+    InvalidAssertion,
+    SignCountRollback,
+    WebAuthnService,
+    derive_rp_params,
+)
 from fief.services.user_manager import InvalidEmailVerificationCodeError, UserManager
 from fief.settings import settings
+from fief.templates import templates
 
 
 def _hash_key(key: str) -> str:
@@ -1030,6 +1042,173 @@ async def mfa_recover(
     message = _("Invalid recovery code. Please try again.")
     form.code.errors.append(message)
     return await form_helper.get_error_response(message, "invalid_recovery_code")
+
+
+# ---------------------------------------------------------------------------
+# MFA-2 T9: Login-time passkey challenge (sibling to /mfa/totp + /mfa/recover)
+# ---------------------------------------------------------------------------
+#
+# Reached the same way as /mfa/totp — the /login POST flagged
+# ``LoginSession.mfa_pending_user_id`` for an MFA-enabled user. The same
+# gating helper (``_gate_mfa_challenge``) governs cookie-binding, lockout,
+# and user-existence checks; the WebAuthn ceremony layers on top.
+#
+# GET /mfa/passkey embeds a freshly-issued ``PublicKeyCredentialRequestOptions``
+# JSON object in the page so the JS bridge (T8 ``authenticateWithEmbeddedOptions``)
+# can call ``startAuthentication`` without a separate /begin fetch — we keep
+# the 2FA case to a single GET round-trip. Discoverable / passwordless flows
+# (MFA-2.5) will need a dedicated /begin endpoint.
+#
+# POST /mfa/passkey/verify is JSON-only. Body = the WebAuthn AuthenticationResponse
+# from ``startAuthentication``. The route maps ``WebAuthnService`` exceptions to
+# stable, JS-friendly status codes:
+#
+#   - ``CredentialNotFound`` / ``InvalidAssertion`` → 401 ``{"error":"invalid"}``
+#     and the per-LoginSession lockout counter increments (parity with TOTP).
+#   - ``SignCountRollback`` → 401 ``{"error":"credential_compromised"}`` but the
+#     counter does NOT increment — a regressed sign count is a credential
+#     defect, not a user-attributable wrong attempt. The service already
+#     audited ``USER_PASSKEY_SIGN_COUNT_ROLLBACK``.
+#   - ``ChallengeExpired`` → 400 ``{"error":"challenge_expired"}`` (the JS bridge
+#     reads this and prompts a page reload).
+#
+# On success the route returns ``{"redirect_to": <verify_email_request URL>}``;
+# the JS bridge follows with ``window.location.assign(...)`` so the freshly
+# issued session cookie set by ``complete_login_after_mfa`` survives the
+# transition.
+
+
+@router.get("/mfa/passkey", name="auth:mfa_passkey")
+async def mfa_passkey(
+    request: Request,
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
+    tenant: Tenant = Depends(get_current_tenant),
+    brand: Brand | None = Depends(get_current_brand),
+    context: BaseContext = Depends(get_base_context),
+    login_session: LoginSession | None = Depends(get_optional_login_session),
+    login_session_repository: LoginSessionRepository = Depends(
+        get_repository(LoginSessionRepository)
+    ),
+    user_repository: UserRepository = Depends(get_repository(UserRepository)),
+):
+    user, redirect = await _gate_mfa_challenge(
+        request,
+        tenant,
+        login_session,
+        login_session_repository,
+        user_repository,
+    )
+    if redirect is not None:
+        return redirect
+    assert user is not None
+    assert login_session is not None
+
+    # Defensive: a user with no passkeys shouldn't have reached this route.
+    # Bounce to /mfa/totp (the only other 2FA challenge in v1) rather than
+    # render an empty allowCredentials prompt.
+    credentials = await webauthn_service.list_for_user(user)
+    if not credentials:
+        return RedirectResponse(
+            tenant.url_path_for(request, "auth:mfa_totp"),
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    rp_id, _rp_name, _origin = derive_rp_params(brand, tenant)
+    options = await webauthn_service.begin_assertion(
+        user, rp_id=rp_id, login_session_id=login_session.id
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "auth/mfa/passkey.html",
+        {**context, "options": options},
+    )
+
+
+@router.post("/mfa/passkey/verify", name="auth:mfa_passkey_verify")
+async def mfa_passkey_verify(
+    request: Request,
+    session_token: SessionToken | None = Depends(get_session_token),
+    authentication_flow: AuthenticationFlow = Depends(get_authentication_flow),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+    tenant: Tenant = Depends(get_current_tenant),
+    brand: Brand | None = Depends(get_current_brand),
+    login_session: LoginSession | None = Depends(get_optional_login_session),
+    login_session_repository: LoginSessionRepository = Depends(
+        get_repository(LoginSessionRepository)
+    ),
+    user_repository: UserRepository = Depends(get_repository(UserRepository)),
+):
+    user, redirect = await _gate_mfa_challenge(
+        request,
+        tenant,
+        login_session,
+        login_session_repository,
+        user_repository,
+    )
+    if redirect is not None:
+        return redirect
+    assert user is not None
+    assert login_session is not None
+
+    rp_id, _, origin = derive_rp_params(brand, tenant)
+    body = await request.json()
+
+    try:
+        await webauthn_service.verify_assertion(
+            user=user,
+            rp_id=rp_id,
+            origin=origin,
+            login_session_id=login_session.id,
+            assertion_response=body,
+        )
+    except CredentialNotFound:
+        # Service already audit-logged USER_PASSKEY_VERIFY_FAILED with
+        # ``reason=credential_not_found``; we just bump the counter to
+        # match the TOTP lockout ladder.
+        await _record_failed_mfa_attempt(login_session, login_session_repository)
+        return JSONResponse({"error": "invalid"}, status_code=status.HTTP_401_UNAUTHORIZED)
+    except InvalidAssertion:
+        # Service already audit-logged USER_PASSKEY_VERIFY_FAILED with
+        # ``reason=invalid_signature``.
+        await _record_failed_mfa_attempt(login_session, login_session_repository)
+        return JSONResponse({"error": "invalid"}, status_code=status.HTTP_401_UNAUTHORIZED)
+    except SignCountRollback:
+        # The credential is suspect, not the attempt — do NOT burn the
+        # user's lockout budget on a sign-count regression. The service
+        # already audited USER_PASSKEY_SIGN_COUNT_ROLLBACK.
+        return JSONResponse(
+            {
+                "error": "credential_compromised",
+                "detail": "Please contact support.",
+            },
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    except ChallengeExpired:
+        # System-level (TTL or replay), not a wrong attempt — counter stays.
+        return JSONResponse(
+            {
+                "error": "challenge_expired",
+                "detail": "Please reload the page and try again.",
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Success: complete the login. We mirror the TOTP success branch — set
+    # cookies on a JSONResponse instead of a RedirectResponse so the JS
+    # bridge can read ``redirect_to`` and call window.location.assign(...).
+    post_login_url = tenant.url_path_for(request, "auth:verify_email_request")
+    response = JSONResponse({"redirect_to": str(post_login_url)})
+    response = await authentication_flow.complete_login_after_mfa(
+        response,
+        login_session,
+        user,
+        request,
+        session_token=session_token,
+    )
+    # Service already audited USER_PASSKEY_VERIFIED on the happy path.
+    return response
 
 
 @router.api_route(
