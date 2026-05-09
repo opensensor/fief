@@ -27,8 +27,10 @@ from fief.models.theme import Theme
 from fief.models.user import User
 from fief.models.user_field import UserField, UserFieldConfiguration, UserFieldType
 from fief.models.user_field_value import UserFieldValue
+from fief.models.user_mfa_recovery_code import UserMfaRecoveryCode
 from fief.models.user_permission import UserPermission
 from fief.models.user_role import UserRole
+from fief.models.user_totp_secret import UserTotpSecret
 from fief.models.webhook import Webhook
 from fief.models.webhook_log import WebhookLog
 
@@ -66,8 +68,10 @@ __all__ = [
     "UserFieldConfiguration",
     "UserFieldType",
     "UserFieldValue",
+    "UserMfaRecoveryCode",
     "UserPermission",
     "UserRole",
+    "UserTotpSecret",
     "Webhook",
     "WebhookLog",
 ]
