@@ -36,6 +36,18 @@ class AuditLogMessage(StrEnum):
     USER_ACCOUNT_ADMIN_UNLOCKED = "USER_ACCOUNT_ADMIN_UNLOCKED"
     USER_PASSWORD_BREACHED_REJECTED = "USER_PASSWORD_BREACHED_REJECTED"
     USER_PASSWORD_BREACHED_CHECK_FAILED_OPEN = "USER_PASSWORD_BREACHED_CHECK_FAILED_OPEN"
+    # UX-1 session revocation events.
+    # Standard `extra` schema (informational — not enforced in code):
+    #   - revoked_session_count: int   (count of fief_session_tokens deleted)
+    #   - revoked_refresh_count: int   (count of fief_refresh_tokens deleted)
+    #   - trigger_reason: str          (USER_SESSIONS_AUTO_REVOKED only;
+    #                                    one of "password_change", "mfa_enrolled",
+    #                                    "mfa_disabled", "recovery_code_used")
+    #   - device_label: str | None     (USER_SESSION_REVOKED only;
+    #                                    e.g. "Safari on Mac OS X")
+    USER_SESSION_REVOKED = "USER_SESSION_REVOKED"
+    USER_SESSIONS_SIGNED_OUT_OTHERS = "USER_SESSIONS_SIGNED_OUT_OTHERS"
+    USER_SESSIONS_AUTO_REVOKED = "USER_SESSIONS_AUTO_REVOKED"
     OAUTH_PROVIDER_USER_ACCESS_TOKEN_GET = "OAUTH_PROVIDER_USER_ACCESS_TOKEN_GET"
 
 
