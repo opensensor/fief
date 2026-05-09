@@ -61,6 +61,16 @@
   >
     Edit User
   </a>
+  <button
+    type="button"
+    class="btn w-full border-slate-200 hover:border-slate-300 text-amber-700"
+    hx-post="/admin/api/users/{{ user.id }}/unlock"
+    hx-swap="none"
+    hx-confirm="Reset this user's failed login counter and clear any active lockout?"
+    hx-on::after-request="if (event.detail.successful) { window.location.reload(); }"
+  >
+    Unlock account
+  </button>
   <a
     href="{{ url_for('dashboard.users:delete', id=user.id) }}"
     class="btn w-full bg-red-500 hover:bg-red-600 text-white"
