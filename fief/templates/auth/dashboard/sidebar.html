@@ -65,5 +65,20 @@
       </svg>
       <span>{{ _("Password") }}</span>
     </a>
+
+    {% set _security_active = (current_route is string and current_route.startswith('auth.dashboard:mfa')) %}
+    <a
+      class="group relative inline-flex md:flex items-center px-3 py-2 rounded-lg whitespace-nowrap text-sm font-medium transition-all mr-1 md:mr-0
+        {{ 'text-teal-700 bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-100 shadow-sm' if _security_active else 'text-slate-600 hover:text-teal-700 hover:bg-teal-50/60' }}"
+      href="{{ tenant.url_path_for(request, 'auth.dashboard:mfa_index') }}"
+    >
+      {% if _security_active %}
+        <span class="hidden md:block absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-gradient-to-b from-teal-500 to-emerald-500"></span>
+      {% endif %}
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4 shrink-0 mr-2 fill-current transition-colors {{ 'text-teal-600' if _security_active else 'text-slate-400 group-hover:text-teal-600' }}">
+        <path fill-rule="evenodd" d="M12 1.5a.75.75 0 01.5.19l8.25 7.5a.75.75 0 01.25.56v9a3 3 0 01-3 3H6a3 3 0 01-3-3v-9a.75.75 0 01.25-.56l8.25-7.5a.75.75 0 01.5-.19zm-1.13 9.252a.75.75 0 011.06 0l1.07 1.07 2.7-2.7a.75.75 0 011.06 1.06l-3.23 3.23a.75.75 0 01-1.06 0l-1.6-1.6a.75.75 0 010-1.06z" clip-rule="evenodd" />
+      </svg>
+      <span>{{ _("Security") }}</span>
+    </a>
   </nav>
 </aside>

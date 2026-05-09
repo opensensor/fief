@@ -1,0 +1,143 @@
+{% import "macros/alerts.html" as alerts %}
+{% import "macros/buttons.html" as buttons %}
+{% import "macros/forms.html" as forms %}
+
+{% extends "auth/dashboard/layout.html" %}
+
+{% block head_title_content %}{{ _("Set up authenticator") }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <header class="flex items-start gap-3">
+    <div class="hidden sm:flex h-10 w-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 items-center justify-center shadow-md shrink-0">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-white">
+        <path fill-rule="evenodd" d="M10.5 3.75a6 6 0 00-5.98 6.496A5.25 5.25 0 006.75 20.25H18a4.5 4.5 0 002.206-8.423 3.75 3.75 0 00-4.133-4.303A6.001 6.001 0 0010.5 3.75zm2.03 5.47a.75.75 0 00-1.06 0l-3 3a.75.75 0 101.06 1.06l1.72-1.72v4.94a.75.75 0 001.5 0v-4.94l1.72 1.72a.75.75 0 101.06-1.06l-3-3z" clip-rule="evenodd" />
+      </svg>
+    </div>
+    <div>
+      <h2 class="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">{{ _("Set up authenticator app") }}</h2>
+      <p class="text-sm text-slate-500 mt-0.5">{{ _("Scan the QR code with your authenticator app and confirm the 6-digit code to finish enrollment.") }}</p>
+    </div>
+  </header>
+
+  {% if error %}
+    {% call alerts.error() %}
+      {{ error }}
+    {% endcall %}
+  {% endif %}
+
+  <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-5 sm:p-6 shadow-sm">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+      {# Left column: QR code + manual entry #}
+      <div class="flex flex-col items-center md:items-start space-y-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
+          {% if qr_png_data_uri %}
+            <img
+              src="{{ qr_png_data_uri }}"
+              alt="{{ _('Scan with your authenticator app') }}"
+              class="w-44 h-44 sm:w-52 sm:h-52 object-contain"
+            />
+          {% endif %}
+        </div>
+
+        {% if secret_b32 %}
+          <div class="w-full">
+            <p class="text-xs font-medium text-slate-500 mb-1.5">{{ _("Can't scan? Enter this code manually:") }}</p>
+            {# Group the base32 secret in clusters of 4 for readability #}
+            {% set _formatted_secret = [] %}
+            {% for i in range(0, secret_b32 | length, 4) %}
+              {% set _ = _formatted_secret.append(secret_b32[i:i+4]) %}
+            {% endfor %}
+            <div class="flex items-center gap-2">
+              <code class="flex-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 font-mono text-sm tracking-wider text-slate-700 break-all select-all">
+                {{ _formatted_secret | join(' ') }}
+              </code>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center w-9 h-9 rounded-lg text-teal-700 bg-white border border-teal-200 hover:border-teal-400 hover:bg-teal-50 shadow-sm transition-colors shrink-0"
+                title="{{ _('Copy to clipboard') }}"
+                _="
+                  on click call navigator.clipboard.writeText('{{ secret_b32 }}')
+                  then add @disabled to me
+                  then toggle .hidden on <svg /> in me
+                  then wait 2s
+                  then toggle .hidden on <svg /> in me
+                  then remove @disabled from me
+                "
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                  <path fill-rule="evenodd" d="M10.5 3A1.501 1.501 0 009 4.5h6A1.5 1.5 0 0013.5 3h-3zm-2.693.178A3 3 0 0110.5 1.5h3a3 3 0 012.694 1.678c.497.042.992.092 1.486.15 1.497.173 2.57 1.46 2.57 2.929V19.5a3 3 0 01-3 3H6.75a3 3 0 01-3-3V6.257c0-1.47 1.073-2.756 2.57-2.93.493-.057.989-.107 1.487-.15z" clip-rule="evenodd" />
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 hidden text-emerald-600">
+                  <path fill-rule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clip-rule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
+      {# Right column: instructions + confirm form #}
+      <div class="space-y-5">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">{{ _("How to enroll") }}</h3>
+          <ol class="text-sm text-slate-600 space-y-1.5 list-decimal pl-5">
+            <li>{{ _("Install an authenticator app such as Google Authenticator, 1Password, Authy, or similar.") }}</li>
+            <li>{{ _("Scan the QR code, or enter the code manually.") }}</li>
+            <li>{{ _("Type the 6-digit code your app displays below to confirm.") }}</li>
+          </ol>
+        </div>
+
+        {% if form %}
+          <form hx-boost="true" method="POST" action="{{ tenant.url_path_for(request, 'auth.dashboard:mfa_totp_confirm') }}">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5" for="{{ form.code.id }}">
+                  {{ _("Authenticator code") }}
+                </label>
+                {{ form.code(
+                    class="form-input w-full text-center font-mono text-xl tracking-[0.5em]",
+                    inputmode="numeric",
+                    pattern="[0-9]{6}",
+                    autocomplete="one-time-code",
+                    maxlength="6",
+                    placeholder="000000"
+                ) }}
+                {{ forms.form_field_errors(form.code) }}
+              </div>
+              {{ forms.form_csrf_token(form) }}
+              <div class="pt-1 flex flex-wrap items-center gap-3">
+                {% call buttons.submit('btn bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all') %}
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mr-1.5">
+                    <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                  </svg>
+                  {{ _("Confirm and enable") }}
+                {% endcall %}
+                <a
+                  href="{{ tenant.url_path_for(request, 'auth.dashboard:mfa_index') }}"
+                  class="text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors"
+                >
+                  {{ _("Cancel") }}
+                </a>
+              </div>
+            </div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  {# Helpful callout #}
+  <aside class="w-full rounded-xl border border-teal-100 bg-gradient-to-br from-teal-50/80 to-emerald-50/60 p-4 sm:p-5 overflow-hidden">
+    <div class="flex items-start gap-3 min-w-0">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-teal-600 shrink-0 mt-0.5">
+        <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd" />
+      </svg>
+      <div class="flex-1 min-w-0">
+        <h4 class="text-sm font-semibold text-teal-900 mb-1">{{ _("Tip") }}</h4>
+        <p class="text-xs sm:text-sm text-teal-800/90">{{ _("After confirming, you'll receive 10 single-use recovery codes. Save them somewhere safe — they're the way back in if you ever lose your phone.") }}</p>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
