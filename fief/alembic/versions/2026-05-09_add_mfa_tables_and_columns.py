@@ -48,6 +48,12 @@ def upgrade():
             server_default=sa.func.now(),
             nullable=False,
         ),
+        sa.Column(
+            "updated_at",
+            fief.models.generics.TIMESTAMPAware(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(
             ["user_id"],
             [f"{table_prefix}users.id"],
@@ -78,6 +84,12 @@ def upgrade():
         sa.Column("id", fief.models.generics.GUID(), nullable=False),
         sa.Column(
             "created_at",
+            fief.models.generics.TIMESTAMPAware(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
             fief.models.generics.TIMESTAMPAware(timezone=True),
             server_default=sa.func.now(),
             nullable=False,
