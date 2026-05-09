@@ -1,4 +1,5 @@
 from typing import TypedDict
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -11,11 +12,13 @@ from fief.apps.auth.forms.verify_email import VerifyEmailForm
 from fief.apps.auth.responses import HXLocationResponse
 from fief.dependencies.brand import get_current_brand
 from fief.dependencies.branding import get_show_branding
+from fief.dependencies.repositories import get_repository
 from fief.dependencies.security import (
     enforce_tenant_mfa_required,
     get_device_sessions_service,
     get_recovery_code_service,
     get_totp_service,
+    get_webauthn_service,
 )
 from fief.dependencies.session_token import (
     get_session_token_or_login,
@@ -28,6 +31,10 @@ from fief.dependencies.users import get_user_manager, get_user_update_model
 from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
 from fief.models import Brand, SessionToken, Tenant, Theme, User
+from fief.repositories import UserRepository, UserTotpSecretRepository
+from fief.repositories.user_webauthn_credential import (
+    UserWebAuthnCredentialRepository,
+)
 from fief.services.security.device_sessions import DeviceSessionsService
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import (
@@ -35,6 +42,7 @@ from fief.services.security.totp import (
     TotpService,
     VerifyResult,
 )
+from fief.services.security.webauthn import WebAuthnService, derive_rp_params
 from fief.services.user_manager import (
     BreachedPasswordError,
     InvalidEmailVerificationCodeError,
@@ -772,3 +780,231 @@ async def sessions_sign_out_others(
             "revoked_refresh_count": r_count,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# MFA-2 T7: /security/passkeys — WebAuthn credential management
+# ---------------------------------------------------------------------------
+#
+# Five routes back the dashboard passkey-management surface:
+#
+# - ``GET    /security/passkeys``                   list credentials (T10 page).
+# - ``POST   /security/passkeys/register/begin``    issue creation options.
+# - ``POST   /security/passkeys/register/finish``   verify + persist attestation.
+# - ``PATCH  /security/passkeys/{credential_id}``   rename a credential.
+# - ``DELETE /security/passkeys/{credential_id}``   remove a credential.
+#
+# All routes mount under the existing dashboard router so they pick up
+# ``BaseContext`` (brand/tenant/user/theme + tenant-MFA-required gate).
+#
+# RP scope is per-brand (see ``derive_rp_params``): a passkey set on
+# ``lightnvr.com`` is intentionally distinct from one on ``owlbooks.ai``.
+#
+# T13 hook: register flips ``mfa_enabled=True`` if the user wasn't already
+# enrolled; delete recomputes the flag (False iff no remaining passkeys
+# AND no confirmed TOTP). T13 will refactor this into a shared helper.
+#
+# T14 hook: register and delete both call ``auto_revoke_others`` to purge
+# every other session/refresh-token. Reasons distinguish the trigger
+# (``passkey_registered`` / ``passkey_deleted``) so support can correlate.
+#
+# **No "last credential" guard in v1** (PRD line 82). T13 keeps
+# ``mfa_enabled`` coherent when the user removes their last factor; if
+# support reports confusion the guard can be added as a follow-up.
+
+
+async def _recompute_mfa_enabled(
+    user: User,
+    *,
+    user_repo: UserRepository,
+    totp_repo: UserTotpSecretRepository,
+    webauthn_repo: UserWebAuthnCredentialRepository,
+) -> None:
+    """Re-derive ``users.mfa_enabled`` from the user's enrolled factors.
+
+    The flag is True iff at least one second factor is enrolled (a
+    confirmed TOTP secret OR at least one WebAuthn credential). Inlined
+    here for T7; T13 will lift this into a shared helper used by every
+    factor-state-changing route.
+    """
+
+    has_totp = (
+        await totp_repo.get_confirmed_by_user_id(user.id)
+    ) is not None
+    has_passkey = await webauthn_repo.count_for_user(user.id) > 0
+    desired = has_totp or has_passkey
+    if user.mfa_enabled != desired:
+        user.mfa_enabled = desired
+        await user_repo.update(user)
+
+
+@router.get("/security/passkeys", name="auth.dashboard:passkeys_index")
+async def passkeys_index(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
+    context: BaseContext = Depends(get_base_context),
+):
+    credentials = await webauthn_service.list_for_user(user)
+    return templates.TemplateResponse(
+        request,
+        "auth/dashboard/security/passkeys.html",
+        {
+            **context,
+            "current_route": "auth.dashboard:passkeys_index",
+            "credentials": credentials,
+        },
+    )
+
+
+@router.post(
+    "/security/passkeys/register/begin",
+    name="auth.dashboard:passkeys_register_begin",
+)
+async def passkeys_register_begin(
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    tenant: Tenant = Depends(get_current_tenant),
+    brand: Brand | None = Depends(get_current_brand),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
+):
+    rp_id, rp_name, _origin = derive_rp_params(brand, tenant)
+    options = await webauthn_service.begin_registration(
+        user, rp_id=rp_id, rp_name=rp_name
+    )
+    # ``options`` is already a JSON-ready dict (``options_to_json_dict``).
+    return JSONResponse(options)
+
+
+@router.post(
+    "/security/passkeys/register/finish",
+    name="auth.dashboard:passkeys_register_finish",
+)
+async def passkeys_register_finish(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    tenant: Tenant = Depends(get_current_tenant),
+    brand: Brand | None = Depends(get_current_brand),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
+    user_repo: UserRepository = Depends(get_repository(UserRepository)),
+    totp_repo: UserTotpSecretRepository = Depends(
+        get_repository(UserTotpSecretRepository)
+    ),
+    webauthn_repo: UserWebAuthnCredentialRepository = Depends(
+        get_repository(UserWebAuthnCredentialRepository)
+    ),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
+):
+    rp_id, _, origin = derive_rp_params(brand, tenant)
+    attestation = await request.json()
+    cred = await webauthn_service.finish_registration(
+        user,
+        rp_id=rp_id,
+        origin=origin,
+        attestation_response=attestation,
+    )
+
+    # T13 hook (inline for now): recompute ``mfa_enabled`` from the
+    # user's enrolled factors. After a successful register we know there
+    # is at least one passkey, so this will flip True if it wasn't
+    # already.
+    await _recompute_mfa_enabled(
+        user,
+        user_repo=user_repo,
+        totp_repo=totp_repo,
+        webauthn_repo=webauthn_repo,
+    )
+
+    # T14 hook: enrolling a new second factor is a credential-elevation
+    # event; purge every OTHER session/refresh token so an attacker who
+    # already has a stale cookie can't ride past the new MFA gate. The
+    # current session is preserved so the user stays signed in here.
+    await device_sessions_service.auto_revoke_others(
+        user.id,
+        current_session_id=session_token.id,
+        reason="passkey_registered",
+    )
+
+    return JSONResponse(
+        {
+            "id": str(cred.id),
+            "label": cred.label,
+            "device_label": "Passkey",
+        }
+    )
+
+
+@router.patch(
+    "/security/passkeys/{credential_id}",
+    name="auth.dashboard:passkeys_rename",
+)
+async def passkeys_rename(
+    credential_id: UUID,
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    webauthn_repo: UserWebAuthnCredentialRepository = Depends(
+        get_repository(UserWebAuthnCredentialRepository)
+    ),
+):
+    body = await request.json()
+    label_raw = (body.get("label") or "").strip()
+    label = label_raw or None
+
+    rowcount = await webauthn_repo.rename_by_id_for_user(
+        credential_id, user.id, label
+    )
+    if rowcount == 0:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/security/passkeys/{credential_id}",
+    name="auth.dashboard:passkeys_delete",
+)
+async def passkeys_delete(
+    credential_id: UUID,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
+    user_repo: UserRepository = Depends(get_repository(UserRepository)),
+    totp_repo: UserTotpSecretRepository = Depends(
+        get_repository(UserTotpSecretRepository)
+    ),
+    webauthn_repo: UserWebAuthnCredentialRepository = Depends(
+        get_repository(UserWebAuthnCredentialRepository)
+    ),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
+):
+    deleted = await webauthn_service.delete(
+        user=user, credential_id=credential_id
+    )
+    if not deleted:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+    # T13 hook (inline for now): recompute ``mfa_enabled``. If the user
+    # just removed their last second factor (no remaining passkeys AND
+    # no confirmed TOTP), this flips the flag False — they have opted
+    # out of MFA, which is their right (PRD line 82 deferral).
+    await _recompute_mfa_enabled(
+        user,
+        user_repo=user_repo,
+        totp_repo=totp_repo,
+        webauthn_repo=webauthn_repo,
+    )
+
+    # T14 hook: deleting a credential is itself a credential-state
+    # change — purge every other session/refresh token. The current
+    # session is preserved so the user stays on the dashboard for the
+    # post-delete render.
+    await device_sessions_service.auto_revoke_others(
+        user.id,
+        current_session_id=session_token.id,
+        reason="passkey_deleted",
+    )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
