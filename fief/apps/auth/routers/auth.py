@@ -41,6 +41,7 @@ from fief.dependencies.oauth_provider import get_oauth_providers
 from fief.dependencies.repositories import get_repository
 from fief.dependencies.security import (
     get_account_lockout_service,
+    get_device_sessions_service,
     get_rate_limiter,
     get_recovery_code_service,
     get_totp_service,
@@ -84,6 +85,7 @@ from fief.services.security.rate_limiter import (
     RateLimitExceeded,
     RateLimitWindow,
 )
+from fief.services.security.device_sessions import DeviceSessionsService
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService, VerifyResult
 from fief.services.user_manager import InvalidEmailVerificationCodeError, UserManager
@@ -885,6 +887,9 @@ async def mfa_recover(
     user_repository: UserRepository = Depends(get_repository(UserRepository)),
     ip_info: ClientIpInfo = Depends(get_client_ip_info),
     rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
 ):
     user, redirect = await _gate_mfa_challenge(
         request,
@@ -993,6 +998,21 @@ async def mfa_recover(
             user,
             request,
             session_token=session_token,
+        )
+        # UX-1 T12: a recovery-code login is the strongest signal we have
+        # that the user no longer trusts existing sessions on the account
+        # (they presumably reached this path because they lost their TOTP
+        # device). Wipe every PRE-recovery session/refresh row; the new
+        # post-MFA cookie just minted by ``complete_login_after_mfa`` is
+        # passed in as ``current_session_id`` so it survives. Audit logged
+        # with ``trigger_reason="recovery_code_used"``.
+        new_session_token_id = (
+            authentication_flow.last_minted_session_token_id
+        )
+        await device_sessions_service.auto_revoke_others(
+            user.id,
+            current_session_id=new_session_token_id,
+            reason="recovery_code_used",
         )
         # ``recovery_code_service.consume`` already audit-logged
         # USER_MFA_RECOVERY_CODE_USED on success; no double-emit needed.

@@ -219,6 +219,10 @@ async def update_password(
     user: User = Depends(get_verified_email_user_from_session_token_or_verify),
     user_manager: UserManager = Depends(get_user_manager),
     context: BaseContext = Depends(get_base_context),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
 ):
     form_helper = FormHelper(
         ChangePasswordForm,
@@ -272,6 +276,17 @@ async def update_password(
             )
             return await form_helper.get_error_response(message, error_code)
         await user_manager.user_repository.update(user)
+
+        # UX-1 T12: auto-revoke every OTHER session/refresh token after a
+        # successful password change. The current cookie's session is
+        # preserved so the user stays signed in here. Audit logged with
+        # ``trigger_reason="password_change"`` so support can correlate
+        # "why did my other sessions get killed?" back to this action.
+        await device_sessions_service.auto_revoke_others(
+            user.id,
+            current_session_id=session_token.id,
+            reason="password_change",
+        )
 
         form_helper.context["success"] = _(
             "Your password has been changed successfully."
@@ -390,6 +405,10 @@ async def mfa_totp_confirm(
     ),
     send_task: SendTask = Depends(get_send_task),
     context: BaseContext = Depends(get_base_context),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
 ):
     form_helper = FormHelper(
         TotpEnrollConfirmForm,
@@ -467,6 +486,17 @@ async def mfa_totp_confirm(
         return await form_helper.get_error_response(message, "invalid_totp_code")
 
     recovery_codes = await recovery_code_service.generate_for(user)
+
+    # UX-1 T12: enrolling a second factor is a credential-elevation event;
+    # purge every OTHER session/refresh token so an attacker who already
+    # has a stale cookie can't ride past the new MFA gate. The current
+    # session is preserved.
+    await device_sessions_service.auto_revoke_others(
+        user.id,
+        current_session_id=session_token.id,
+        reason="mfa_enrolled",
+    )
+
     return templates.TemplateResponse(
         request,
         "auth/dashboard/security/recovery_codes.html",
@@ -492,6 +522,10 @@ async def mfa_totp_disable(
     brand: Brand | None = Depends(get_current_brand),
     send_task: SendTask = Depends(get_send_task),
     context: BaseContext = Depends(get_base_context),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
 ):
     form_helper = FormHelper(
         TotpDisableForm,
@@ -548,6 +582,17 @@ async def mfa_totp_disable(
         user,
         send_task=send_task,
         brand_id=str(brand.id) if brand is not None else None,
+    )
+
+    # UX-1 T12: disabling a second factor is itself a credential-state change
+    # — every other live cookie/refresh-token must be invalidated so an
+    # attacker who already has one can't continue to ride it. The current
+    # session is preserved so the user stays signed in to the dashboard
+    # for the post-disable confirmation render.
+    await device_sessions_service.auto_revoke_others(
+        user.id,
+        current_session_id=session_token.id,
+        reason="mfa_disabled",
     )
 
     # Re-fetch context flag so the success render reflects the new state.

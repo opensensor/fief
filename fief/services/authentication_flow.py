@@ -47,6 +47,11 @@ class AuthenticationFlow:
         self.session_token_repository = session_token_repository
         self.grant_repository = grant_repository
         self.get_user_permissions = get_user_permissions
+        # UX-1 T12: populated by ``create_session_token`` with the id of
+        # the row it just inserted. Stays ``None`` until the first call.
+        # Each ``AuthenticationFlow`` instance is per-request (via
+        # ``get_authentication_flow``) so this never bleeds across requests.
+        self.last_minted_session_token_id: UUID4 | None = None
 
     async def create_login_session(
         self,
@@ -115,16 +120,22 @@ class AuthenticationFlow:
         created_ip = get_client_ip_info(request).raw
         created_user_agent = request.headers.get("user-agent")
         now = datetime.now(UTC)
-        await self.session_token_repository.create(
-            SessionToken(
-                token=token_hash,
-                user_id=user_id,
-                created_ip=created_ip,
-                created_user_agent=created_user_agent,
-                last_seen_at=now,
-                last_seen_ip=created_ip,
-            )
+        new_session_token = SessionToken(
+            token=token_hash,
+            user_id=user_id,
+            created_ip=created_ip,
+            created_user_agent=created_user_agent,
+            last_seen_at=now,
+            last_seen_ip=created_ip,
         )
+        await self.session_token_repository.create(new_session_token)
+        # UX-1 T12: stash the just-minted session-token id on the flow
+        # instance so the caller (currently ``mfa_recover``) can pass it
+        # as the ``current_session_id`` to ``auto_revoke_others`` after a
+        # recovery-code login. Each ``AuthenticationFlow`` instance is
+        # created per-request via ``get_authentication_flow``, so this
+        # attribute can never bleed across requests.
+        self.last_minted_session_token_id = new_session_token.id
         response.set_cookie(
             settings.session_cookie_name,
             value=token,
@@ -163,6 +174,12 @@ class AuthenticationFlow:
         recovery-code challenge. Rotates the session token (issuing a fresh
         session cookie) and clears the MFA carry-state on the login session so
         a subsequent /login POST starts clean.
+
+        Side effect: ``self.last_minted_session_token_id`` is set to the id
+        of the freshly minted session-token row by ``create_session_token``
+        — UX-1 T12's ``auto_revoke_others`` reads it from there to keep the
+        new post-MFA session as the "current" one while purging
+        pre-recovery sessions.
         """
         response = await self.rotate_session_token(
             response, user.id, request, session_token=session_token

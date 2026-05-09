@@ -301,9 +301,19 @@ Wave 10 (Rollout)
 
   **Device label:** `f"{ua.browser.family} on {ua.os.family}"` (e.g. "Safari on Mac OS X"). Empty UA → `"Unknown device"`.
 - **validation:** Unit tests in T15.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - Implemented `DeviceSessionsService` with `list_for_user`, `revoke`, `sign_out_others`, `auto_revoke_others`. Dedup key is `(browser_family, os_family, ip_bucket)` where the bucket is the IPv4 `/24`, IPv6 `/64`, or the literal `"unknown"` for missing/unparseable IPs. `device_label` falls back to `"Unknown device"` for empty UA *and* for `user_agents`'s `Other`/`Other` family pair (so the dashboard never surfaces "Other on Other").
+  - `device_kind` mapping is `phone | tablet | computer | unknown` per the plan's clarification (T10 footnote: `is_pc` covers desktops AND laptops).
+  - `revoke()` re-lists server-side and matches on the recomputed `device_key`, returning `None` on stale keys so the route can translate to a 404 (concurrent double-click case).
+  - `sign_out_others` / `auto_revoke_others` both preserve the current session-cookie row but wipe ALL refresh tokens (refresh tokens have no "current session" concept). Audits emit `revoked_session_count` + `revoked_refresh_count`; the auto-revoke variant additionally records `trigger_reason`.
+  - `client_label` aggregates distinct `refresh_token.client.name` values inside one dedup bucket as a comma-joined string (uncommon but cheap).
+  - Factory `get_device_sessions_service` added next to the existing security factories.
+  - 13 unit tests covering: empty list, /24 dedup vs /16 split, `is_current` flag, Safari → "Safari on Mac OS X" / `computer`, empty UA → "Unknown device" / `unknown`, mobile UA → `phone`, `last_seen` desc sort, refresh-token `client_label`, `revoke` happy-path + audit, stale `device_key` → `None` no-audit, `sign_out_others` preserves current + wipes all refresh, `auto_revoke_others` audit shape with `trigger_reason`. All green.
 - **files edited/created:**
+  - `fief/services/security/device_sessions.py` (new)
+  - `fief/dependencies/security.py`
+  - `tests/services/test_device_sessions_service.py` (new)
 
 ### T11: /security/sessions routes
 - **depends_on:** [T10]
@@ -315,9 +325,17 @@ Wave 10 (Rollout)
 
   Inject `session_token: SessionToken = Depends(get_session_token_or_login)` so we know the current session id. Cross-user authorization is enforced by `DeviceSessionsService.list_for_user(user.id, ...)` filtering — only devices owned by the requester appear in the candidate set, and the device_key reverse-lookup re-uses that same filtered list.
 - **validation:** Integration tests in T16.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - Added three routes to `fief/apps/auth/routers/dashboard.py`. Each uses `Depends(get_session_token_or_login)` so the current session id is known without duplicating cookie parsing, and `Depends(get_device_sessions_service)` for the per-request service.
+  - `GET /security/sessions` renders `auth/dashboard/security/sessions.html` (template owned by T13) with `devices` + `current_route`.
+  - `DELETE /security/sessions/{device_key}` returns `Response(404)` when `revoke()` returns `None` (stale key — concurrent double-click), `RedirectResponse(303 /login)` via `tenant.url_path_for(request, "auth:login")` when the revoked row contains `session_token.id` (no explicit `delete_cookie`; the cookie's underlying row is gone so the next request fails validation naturally), or `Response(204)` for a successful non-current revoke.
+  - `POST /security/sessions/sign-out-others` returns a `JSONResponse` with `success`, `revoked_session_count`, `revoked_refresh_count` so HTMX has a structured shape for the success flash.
+  - Added new imports (`Response`, `RedirectResponse`, `JSONResponse`, `SessionToken`, `DeviceSessionsService`, `get_session_token_or_login`, `get_device_sessions_service`) to the dashboard router.
+  - Test file `tests/apps/auth/routers/test_sessions.py` added with 7 cases (RED → GREEN): two-device GET, single-session GET, stale key 404, non-current 204 + audit `USER_SESSION_REVOKED`, current-device 303 to /login, foreign device_key 404, sign-out-others 200 + audit `USER_SESSIONS_SIGNED_OUT_OTHERS`. Stub template injected via `DictLoader` because the real template ships in T13. All tests green.
 - **files edited/created:**
+  - `fief/apps/auth/routers/dashboard.py`
+  - `tests/apps/auth/routers/test_sessions.py` (new)
 
 ### T12: Auto-revoke wires
 - **depends_on:** [T2, T6, T7]
@@ -330,9 +348,21 @@ Wave 10 (Rollout)
 
   All four call sites add the same one-liner. Document the trigger reasons in the audit log entries so support can correlate "why did my other sessions get killed?" with a specific user action.
 - **validation:** Integration tests in T17.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: TDD — wrote `tests/apps/auth/routers/test_auto_revoke_sessions.py` covering all four insertion points (password change, MFA enroll confirm, MFA disable, recovery-code login). Each test seeds an extra session row (and where relevant a refresh token) for the user, exercises the route, and asserts (1) the route still returns the right success status, (2) audit log emitted exactly one `USER_SESSIONS_AUTO_REVOKED` with the matching `extra.trigger_reason`, (3) the "other" session row is gone from the DB, (4) the current session survives. RED first (4 failures: zero `USER_SESSIONS_AUTO_REVOKED` emissions). Wired four `await device_sessions_service.auto_revoke_others(...)` calls AFTER the operation succeeds:
+    - `dashboard.py::update_password` → `reason="password_change"` (after `user_manager.user_repository.update`).
+    - `dashboard.py::mfa_totp_confirm` → `reason="mfa_enrolled"` (after the recovery-code generation + just before the `recovery_codes.html` render).
+    - `dashboard.py::mfa_totp_disable` → `reason="mfa_disabled"` (after `totp_service.disable`).
+    - `auth.py::mfa_recover` POST success → `reason="recovery_code_used"` (after `complete_login_after_mfa` so the freshly minted post-MFA session is the `current_session_id` and every PRE-recovery session gets revoked).
+  - Each route gained `device_sessions_service: DeviceSessionsService = Depends(get_device_sessions_service)`. The dashboard routes additionally added `session_token: SessionToken = Depends(get_session_token_or_login)` (the existing `get_verified_email_user_from_session_token_or_verify` dep does NOT expose the session_token row, only the user). The recovery-code path doesn't have a SessionToken dep — the user is mid-login — so we read the new id off `authentication_flow.last_minted_session_token_id`.
+  - Surgical refactor of `fief/services/authentication_flow.py`: `create_session_token` now stashes the just-minted SessionToken's id on `self.last_minted_session_token_id` (initialized to `None` in `__init__`). `AuthenticationFlow` is per-request via `get_authentication_flow`, so this attribute can never bleed across requests. `complete_login_after_mfa` calls into `rotate_session_token → create_session_token`, so the attribute is populated by the time the recovery-code handler reads it.
+  - All 4 new tests GREEN. Regression suite (38 tests across `test_dashboard_mfa.py`, `test_mfa_challenge.py`, `test_login_security.py`, `test_password_breached_handlers.py`, `test_sessions.py` plus 16 in `test_login_mfa_branch.py` / `test_mfa_enforcement.py` / `test_authentication_flow_lifecycle.py`) all green — the new `last_minted_session_token_id` instance attribute is additive and the existing `complete_login_after_mfa` return shape is unchanged.
 - **files edited/created:**
+  - `fief/apps/auth/routers/dashboard.py` (modified — three routes wired)
+  - `fief/apps/auth/routers/auth.py` (modified — mfa_recover wired)
+  - `fief/services/authentication_flow.py` (modified — `last_minted_session_token_id` attribute)
+  - `tests/apps/auth/routers/test_auto_revoke_sessions.py` (new)
 
 ### T13: Devices tab template
 - **depends_on:** [T11]
