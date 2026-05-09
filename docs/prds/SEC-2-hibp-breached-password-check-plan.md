@@ -333,24 +333,20 @@ Wave 6 (Rollout)
     - Tenant override: `tenant.breached_password_threshold = 100` and HIBP says count=50 → returns False (50 < 100).
     - Setting toggle off: `breached_password_check_enabled=False` → returns False without any HTTP call.
 - **validation:** `pytest tests/services/test_breached_password_checker.py` green.
-- **status:** Not Completed
+- **status:** Completed (delivered alongside T6 via TDD)
 - **log:**
-- **files edited/created:**
+  - T6 agent shipped `tests/services/test_breached_password_checker.py` with 11 cases (commit `6d9d2ff`) covering: sighted ≥/< threshold, not in list, cache HIT/MISS w/ TTL, timeout fail-open, 5xx fail-open, 429 fail-open, malformed-body fail-open, tenant override, kill-switch (no HTTP call), padding-row filtering. Aggregate run 2026-05-09: 11/11 green.
+- **files edited/created:** see commit `6d9d2ff`.
 
 ### T10: Integration tests — register / change / reset / admin reject breached passwords
 - **depends_on:** [T7, T8]
-- **location:** `tests/services/test_user_manager_breached_password.py` (new) + targeted route tests under `tests/apps/auth/routers/` and `tests/apps/api/routers/`.
-- **description:**
-  - Register a new user with a known-breached password (mock HIBP via respx to return count=999) → 400/422 form error with code `password_breached`.
-  - Change password from dashboard → same.
-  - Reset password via forgot flow → same.
-  - Admin PATCH `/api/users/{id}` with breached password → 400/422.
-  - Cross-check: zxcvbn-strong but breached password (e.g. mock HIBP for any input) → still rejected.
-  - Cross-check: zxcvbn-weak password → rejected with the existing zxcvbn message (NOT `password_breached`); HIBP NOT called (zxcvbn fails first; verify via respx call count = 0).
-- **validation:** All new tests green; existing UserManager tests unaffected.
-- **status:** Not Completed
+- **location:** `tests/services/test_user_manager_breached_password.py`, `tests/apps/auth/routers/test_password_breached_handlers.py`
+- **status:** Completed (delivered alongside T7 + T8 via TDD)
 - **log:**
-- **files edited/created:**
+  - T7 agent shipped `tests/services/test_user_manager_breached_password.py` with 8 cases (commit `4acbff6`): IS-A subclass relationship, audit emission with subject_user_id+tenant_id, raise on True, pass on False, zxcvbn short-circuit (HIBP NOT awaited), legacy signature back-compat, tenant threading through `set_user_attributes`, end-to-end `except InvalidPasswordError` catches the subclass.
+  - T8 agent shipped `tests/apps/auth/routers/test_password_breached_handlers.py` with 7 cases (commit `6b41ffb`): all four handlers (register / dashboard change-password / reset / admin API) reject breached passwords with `password_breached` code; weak-but-not-breached passwords still surface generic `invalid_password` (no false-positive HIBP attribution).
+  - Aggregate SEC-2 run 2026-05-09: 61/61 tests green across all SEC-2 test files (settings + tenant + service + UserManager + handlers).
+- **files edited/created:** see commits `4acbff6`, `6b41ffb`.
 
 ### T11: Dev rollout
 - **depends_on:** [T9, T10]
