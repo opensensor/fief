@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from fief import __version__, tasks
 from fief.db.main import create_main_async_session_maker, create_main_engine
+from fief.dependencies.redis import close_redis
 from fief.logger import init_logger, logger
 from fief.services.posthog import get_server_id
 from fief.settings import settings
@@ -51,5 +52,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[LifespanState, None]:
     }
 
     await main_engine.dispose()
+
+    # SEC-1 T6: return the async Redis pool's connections cleanly. This
+    # runs after the SQL engine dispose so any in-flight request that
+    # was draining still has Redis available; if the pool was never
+    # built (e.g. startup aborted), close_redis() is a no-op.
+    await close_redis()
 
     logger.info("Fief Server stopped")
