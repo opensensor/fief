@@ -1,4 +1,5 @@
 import urllib.parse
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -6,6 +7,7 @@ from pydantic import AnyUrl
 from sqlalchemy import select
 
 from fief.apps.auth.forms.auth import ConsentForm, LoginForm
+from fief.apps.auth.forms.mfa import MfaRecoveryForm, TotpVerifyForm
 from fief.apps.auth.forms.verify_email import VerifyEmailForm
 from fief.dependencies.auth import (
     BaseContext,
@@ -29,8 +31,13 @@ from fief.dependencies.auth import (
 )
 from fief.dependencies.authentication_flow import get_authentication_flow
 from fief.dependencies.login_hint import LoginHint, get_login_hint
+from fief.dependencies.logger import get_audit_logger
 from fief.dependencies.oauth_provider import get_oauth_providers
 from fief.dependencies.repositories import get_repository
+from fief.dependencies.security import (
+    get_recovery_code_service,
+    get_totp_service,
+)
 from fief.dependencies.session_token import (
     get_session_token,
     get_session_token_or_login,
@@ -42,15 +49,36 @@ from fief.dependencies.users import get_user_manager
 from fief.exceptions import LogoutException
 from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
-from fief.models import Client, LoginSession, OAuthProvider, Tenant, User
+from fief.logger import AuditLogger
+from fief.models import (
+    AuditLogMessage,
+    Client,
+    LoginSession,
+    OAuthProvider,
+    Tenant,
+    User,
+)
 from fief.models.session_token import SessionToken
-from fief.repositories import ClientRepository, LoginSessionRepository
+from fief.repositories import (
+    ClientRepository,
+    LoginSessionRepository,
+    UserRepository,
+)
 from fief.repositories.session_token import SessionTokenRepository
 from fief.schemas.auth import LogoutError
 from fief.services.acr import ACR
 from fief.services.authentication_flow import AuthenticationFlow
+from fief.services.security.recovery_codes import RecoveryCodeService
+from fief.services.security.totp import TotpService, VerifyResult
 from fief.services.user_manager import InvalidEmailVerificationCodeError, UserManager
 from fief.settings import settings
+
+# Maximum allowed wrong MFA attempts on a single LoginSession before it is
+# locked. Hard-coded here (rather than in settings) so the value is part of
+# the security review surface for MFA-1; T16/T26 will revisit if we want a
+# tenant-level override.
+MFA_MAX_ATTEMPTS = 5
+MFA_LOCKOUT_DURATION = timedelta(minutes=10)
 
 router = APIRouter()
 
@@ -301,6 +329,343 @@ async def verify_email(
         return response
 
     return await form_helper.get_response()
+
+
+# ---------------------------------------------------------------------------
+# Login-time MFA challenge routes (T14)
+# ---------------------------------------------------------------------------
+#
+# Reached after the /login POST flagged ``LoginSession.mfa_pending_user_id``
+# for an MFA-enabled user (T15). These routes never trust client-side state
+# beyond the LoginSession cookie itself: the user identity is *always* read
+# off ``login_session.mfa_pending_user_id``, never from a form field or a
+# query parameter, so a stolen cookie cannot be used to challenge a
+# different user's account.
+#
+# The gating helper below also handles two defense-in-depth concerns:
+#
+# 1. Lockout — a session that has racked up :data:`MFA_MAX_ATTEMPTS` wrong
+#    attempts is bounced to /login until ``mfa_locked_until`` elapses. The
+#    /login POST always wipes carry-state at the start (see commit
+#    ``3e51874``), so an attacker can't sit on a stale locked session
+#    indefinitely once the user re-authenticates.
+#
+# 2. Orphan self-heal — if ``user.mfa_enabled=True`` but no confirmed
+#    ``UserTotpSecret`` row exists (e.g. the secret table was wiped out of
+#    band), the GET handlers call :meth:`TotpService.disable` to flip the
+#    flag back to false and bounce to /login. That avoids stranding the
+#    user on a challenge they can never answer. Audit-logged with
+#    ``USER_MFA_STATE_INCONSISTENT`` so the inconsistency is observable.
+
+
+def _redirect_to_login_generic(
+    request: Request, tenant: Tenant
+) -> RedirectResponse:
+    """Bounce back to /login with a generic flash. Used for every gating
+    failure on /mfa/totp and /mfa/recover so we don't leak whether the
+    underlying cause was a missing cookie, an unset ``mfa_pending_user_id``,
+    a lockout, or a missing user."""
+
+    return RedirectResponse(
+        tenant.url_path_for(request, "auth:login"),
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+async def _gate_mfa_challenge(
+    request: Request,
+    tenant: Tenant,
+    login_session: LoginSession | None,
+    login_session_repository: LoginSessionRepository,
+    user_repository: UserRepository,
+) -> tuple[User | None, RedirectResponse | None]:
+    """Common gating for the MFA challenge routes.
+
+    Returns ``(user, None)`` on success, or ``(None, redirect_response)``
+    when the request must be sent back to /login. The caller is
+    responsible for the orphan self-heal step on the GET handlers, since
+    that needs the :class:`TotpService` instance.
+    """
+
+    if login_session is None or login_session.mfa_pending_user_id is None:
+        return None, _redirect_to_login_generic(request, tenant)
+
+    if (
+        login_session.mfa_locked_until is not None
+        and login_session.mfa_locked_until > datetime.now(UTC)
+    ):
+        # Defense-in-depth: clear pending user id so a refresh after
+        # lockout-expiry forces a fresh /login round-trip rather than
+        # silently re-arming the challenge.
+        login_session.mfa_pending_user_id = None
+        await login_session_repository.update(login_session)
+        return None, _redirect_to_login_generic(request, tenant)
+
+    user = await user_repository.get_by_id(login_session.mfa_pending_user_id)
+    if user is None:
+        # User vanished between /login and /mfa/* — clear carry-state and
+        # bounce. This is exceptional but cheap to defend against.
+        login_session.mfa_pending_user_id = None
+        login_session.mfa_attempts_count = 0
+        login_session.mfa_locked_until = None
+        await login_session_repository.update(login_session)
+        return None, _redirect_to_login_generic(request, tenant)
+
+    return user, None
+
+
+async def _maybe_self_heal_orphan_mfa(
+    user: User,
+    totp_service: TotpService,
+    request: Request,
+    tenant: Tenant,
+    login_session: LoginSession,
+    login_session_repository: LoginSessionRepository,
+) -> RedirectResponse | None:
+    """If ``user.mfa_enabled`` is set but no confirmed secret row exists,
+    self-heal by calling :meth:`TotpService.disable` and bounce to /login.
+    Returns the redirect response (or ``None`` to continue rendering)."""
+
+    confirmed = await totp_service.totp_repo.get_confirmed_by_user_id(user.id)
+    if user.mfa_enabled and confirmed is None:
+        await totp_service.disable(user)
+        totp_service.audit_logger(
+            AuditLogMessage.USER_MFA_STATE_INCONSISTENT,
+            subject_user_id=user.id,
+            extra={"reason": "missing_confirmed_secret_at_challenge"},
+        )
+        # Clear the carry-state on the way out so the next /login POST
+        # starts clean (the /login POST clears it again — defense in depth).
+        login_session.mfa_pending_user_id = None
+        login_session.mfa_attempts_count = 0
+        login_session.mfa_locked_until = None
+        await login_session_repository.update(login_session)
+        return _redirect_to_login_generic(request, tenant)
+    return None
+
+
+async def _record_failed_mfa_attempt(
+    login_session: LoginSession,
+    login_session_repository: LoginSessionRepository,
+) -> bool:
+    """Increment ``mfa_attempts_count`` and apply the lockout once the
+    threshold is reached. Returns ``True`` when the session is now locked
+    (caller should redirect to /login)."""
+
+    login_session.mfa_attempts_count = (
+        login_session.mfa_attempts_count or 0
+    ) + 1
+    locked = False
+    if login_session.mfa_attempts_count >= MFA_MAX_ATTEMPTS:
+        login_session.mfa_locked_until = (
+            datetime.now(UTC) + MFA_LOCKOUT_DURATION
+        )
+        locked = True
+    await login_session_repository.update(login_session)
+    return locked
+
+
+@router.api_route("/mfa/totp", methods=["GET", "POST"], name="auth:mfa_totp")
+async def mfa_totp(
+    request: Request,
+    session_token: SessionToken | None = Depends(get_session_token),
+    authentication_flow: AuthenticationFlow = Depends(get_authentication_flow),
+    totp_service: TotpService = Depends(get_totp_service),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+    tenant: Tenant = Depends(get_current_tenant),
+    context: BaseContext = Depends(get_base_context),
+    login_session: LoginSession | None = Depends(get_optional_login_session),
+    login_session_repository: LoginSessionRepository = Depends(
+        get_repository(LoginSessionRepository)
+    ),
+    user_repository: UserRepository = Depends(
+        get_repository(UserRepository)
+    ),
+):
+    user, redirect = await _gate_mfa_challenge(
+        request,
+        tenant,
+        login_session,
+        login_session_repository,
+        user_repository,
+    )
+    if redirect is not None:
+        return redirect
+    assert user is not None  # narrowed by _gate_mfa_challenge contract
+    assert login_session is not None
+
+    if request.method == "GET":
+        orphan_redirect = await _maybe_self_heal_orphan_mfa(
+            user,
+            totp_service,
+            request,
+            tenant,
+            login_session,
+            login_session_repository,
+        )
+        if orphan_redirect is not None:
+            return orphan_redirect
+
+    form_helper = FormHelper(
+        TotpVerifyForm,
+        "auth/mfa/totp.html",
+        request=request,
+        context={**context},
+    )
+
+    if not await form_helper.is_submitted_and_valid():
+        return await form_helper.get_response()
+
+    form = await form_helper.get_form()
+    result = await totp_service.verify(user, form.code.data)
+
+    if result == VerifyResult.SUCCESS:
+        # Build the redirect to the post-login destination first; we mirror
+        # the non-MFA branch of /login here (verify_email_request handles
+        # the email-verification gate, then forwards to /consent).
+        response = RedirectResponse(
+            tenant.url_path_for(request, "auth:verify_email_request"),
+            status_code=status.HTTP_302_FOUND,
+        )
+        response = await authentication_flow.complete_login_after_mfa(
+            response,
+            login_session,
+            user,
+            session_token=session_token,
+        )
+        audit_logger(
+            AuditLogMessage.USER_MFA_VERIFIED,
+            subject_user_id=user.id,
+        )
+        return response
+
+    if result == VerifyResult.INCONSISTENT_STATE:
+        # The verify path already audit-logged with reason=decryption_failed
+        # or reason=missing_confirmed_secret. Self-heal and bounce.
+        await totp_service.disable(user)
+        audit_logger(
+            AuditLogMessage.USER_MFA_STATE_INCONSISTENT,
+            subject_user_id=user.id,
+            extra={"reason": "decryption_failed_or_missing_at_verify"},
+        )
+        login_session.mfa_pending_user_id = None
+        login_session.mfa_attempts_count = 0
+        login_session.mfa_locked_until = None
+        await login_session_repository.update(login_session)
+        return _redirect_to_login_generic(request, tenant)
+
+    # INVALID or REPLAY: increment the attempt counter, possibly lock.
+    locked = await _record_failed_mfa_attempt(
+        login_session, login_session_repository
+    )
+    audit_logger(
+        AuditLogMessage.USER_MFA_VERIFY_FAILED,
+        subject_user_id=user.id,
+        extra={
+            "reason": "replay" if result == VerifyResult.REPLAY else "invalid"
+        },
+    )
+    if locked:
+        return _redirect_to_login_generic(request, tenant)
+
+    message = _("Invalid code. Please try again.")
+    form.code.errors.append(message)
+    return await form_helper.get_error_response(message, "invalid_mfa_code")
+
+
+@router.api_route(
+    "/mfa/recover", methods=["GET", "POST"], name="auth:mfa_recover"
+)
+async def mfa_recover(
+    request: Request,
+    session_token: SessionToken | None = Depends(get_session_token),
+    authentication_flow: AuthenticationFlow = Depends(get_authentication_flow),
+    totp_service: TotpService = Depends(get_totp_service),
+    recovery_code_service: RecoveryCodeService = Depends(
+        get_recovery_code_service
+    ),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+    tenant: Tenant = Depends(get_current_tenant),
+    context: BaseContext = Depends(get_base_context),
+    login_session: LoginSession | None = Depends(get_optional_login_session),
+    login_session_repository: LoginSessionRepository = Depends(
+        get_repository(LoginSessionRepository)
+    ),
+    user_repository: UserRepository = Depends(
+        get_repository(UserRepository)
+    ),
+):
+    user, redirect = await _gate_mfa_challenge(
+        request,
+        tenant,
+        login_session,
+        login_session_repository,
+        user_repository,
+    )
+    if redirect is not None:
+        return redirect
+    assert user is not None
+    assert login_session is not None
+
+    if request.method == "GET":
+        orphan_redirect = await _maybe_self_heal_orphan_mfa(
+            user,
+            totp_service,
+            request,
+            tenant,
+            login_session,
+            login_session_repository,
+        )
+        if orphan_redirect is not None:
+            return orphan_redirect
+
+    form_helper = FormHelper(
+        MfaRecoveryForm,
+        "auth/mfa/recover.html",
+        request=request,
+        context={**context},
+    )
+
+    if not await form_helper.is_submitted_and_valid():
+        return await form_helper.get_response()
+
+    form = await form_helper.get_form()
+    accepted = await recovery_code_service.consume(user, form.code.data)
+
+    if accepted:
+        # Force re-enroll on next login: tear down both the secret and any
+        # remaining recovery codes.
+        await totp_service.disable(user)
+        response = RedirectResponse(
+            tenant.url_path_for(request, "auth:verify_email_request"),
+            status_code=status.HTTP_302_FOUND,
+        )
+        response = await authentication_flow.complete_login_after_mfa(
+            response,
+            login_session,
+            user,
+            session_token=session_token,
+        )
+        # ``recovery_code_service.consume`` already audit-logged
+        # USER_MFA_RECOVERY_CODE_USED on success; no double-emit needed.
+        return response
+
+    locked = await _record_failed_mfa_attempt(
+        login_session, login_session_repository
+    )
+    audit_logger(
+        AuditLogMessage.USER_MFA_VERIFY_FAILED,
+        subject_user_id=user.id,
+        extra={"reason": "recovery_invalid"},
+    )
+    if locked:
+        return _redirect_to_login_generic(request, tenant)
+
+    message = _("Invalid recovery code. Please try again.")
+    form.code.errors.append(message)
+    return await form_helper.get_error_response(
+        message, "invalid_recovery_code"
+    )
 
 
 @router.api_route(
