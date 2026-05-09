@@ -44,7 +44,7 @@ from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
 from fief.models import Client, LoginSession, OAuthProvider, Tenant, User
 from fief.models.session_token import SessionToken
-from fief.repositories import ClientRepository
+from fief.repositories import ClientRepository, LoginSessionRepository
 from fief.repositories.session_token import SessionTokenRepository
 from fief.schemas.auth import LogoutError
 from fief.services.acr import ACR
@@ -135,7 +135,6 @@ async def authorize(
 @router.api_route(
     "/login",
     methods=["GET", "POST"],
-    dependencies=[Depends(get_optional_login_session)],
     name="auth:login",
 )
 async def login(
@@ -147,6 +146,10 @@ async def login(
     login_hint: LoginHint | None = Depends(get_login_hint),
     tenant: Tenant = Depends(get_current_tenant),
     context: BaseContext = Depends(get_base_context),
+    login_session: LoginSession | None = Depends(get_optional_login_session),
+    login_session_repository: LoginSessionRepository = Depends(
+        get_repository(LoginSessionRepository)
+    ),
 ):
     # Prefill email with login_hint if it's a string
     initial_form_data = None
@@ -176,6 +179,39 @@ async def login(
             return await form_helper.get_error_response(
                 _("Invalid email or password"), "bad_credentials"
             )
+
+        # Always clear stale MFA carry-state at the start of a fresh /login
+        # POST. This defends against reusing a session that retained pending
+        # MFA state from a previously abandoned challenge.
+        if login_session is not None:
+            login_session.mfa_pending_user_id = None
+            login_session.mfa_attempts_count = 0
+            login_session.mfa_locked_until = None
+            await login_session_repository.update(login_session)
+
+        # If the user has MFA enabled, defer issuing a session cookie until
+        # the TOTP/recovery challenge succeeds. Mark the login session with
+        # the pending user id so the verify route (T14) can identify the
+        # user without trusting any client-side state.
+        if user.mfa_enabled and login_session is not None:
+            login_session.mfa_pending_user_id = user.id
+            await login_session_repository.update(login_session)
+            try:
+                mfa_redirect_path = tenant.url_path_for(request, "auth:mfa_totp")
+            except Exception:
+                # T14 will register ``auth:mfa_totp``. Until it lands we fall
+                # back to the well-known path so this branch is safe to ship
+                # ahead of T14's route.
+                path_prefix = "" if tenant.default else f"/{tenant.slug}"
+                mfa_redirect_path = f"{path_prefix}/mfa/totp"
+            response = RedirectResponse(
+                mfa_redirect_path,
+                status_code=status.HTTP_302_FOUND,
+            )
+            response = await authentication_flow.set_login_hint(
+                response, str(user.email)
+            )
+            return response
 
         response = RedirectResponse(
             tenant.url_path_for(request, "auth:verify_email_request"),

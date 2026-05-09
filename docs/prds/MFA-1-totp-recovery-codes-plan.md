@@ -287,9 +287,17 @@ Wave 9 (Rollout)
   3. Else: existing path unchanged — `rotate_session_token()` immediately.
   Add a small helper `complete_login_after_mfa(login_session, user, request)` in `authentication_flow.py` that the verify route (T14) calls; it does the `rotate_session_token` and clears MFA carry-state.
 - **validation:** Login with non-MFA user: unchanged behavior. Login with MFA user: never receives a session cookie until /mfa/totp succeeds. Stale carry-state from a prior abandoned MFA challenge is wiped on the next /login POST.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09 — Added `AuthenticationFlow.complete_login_after_mfa(response, login_session, user, *, session_token)` helper that rotates the session token and clears `mfa_pending_user_id` / `mfa_attempts_count` / `mfa_locked_until` on the login session, then persists. To be called by the T14 verify route.
+  - 2026-05-09 — Modified the `/login` POST handler: injected `login_session` and `LoginSessionRepository` as dependencies (replacing the bare `dependencies=[Depends(get_optional_login_session)]` indirection). On every successful credential check the route now wipes stale MFA carry-state from the login session before doing anything else. When `user.mfa_enabled` is true, the route sets `login_session.mfa_pending_user_id = user.id`, persists, and redirects to the TOTP challenge — no `rotate_session_token()` call, so no session cookie is issued. Non-MFA users keep the existing `verify_email_request` redirect with session rotation.
+  - 2026-05-09 — Added a try/except fallback around `tenant.url_path_for(request, "auth:mfa_totp")` so the login branch is safe to land before T14 registers the route name; falls back to the well-known path `/{slug}/mfa/totp` (or `/mfa/totp` for the default tenant). T14 should drop the fallback once it lands.
+  - 2026-05-09 — Added `tests/apps/auth/routers/test_login_mfa_branch.py` (4 tests, all green): non-MFA happy path unchanged; MFA-enabled user redirects to `/mfa/totp` with `mfa_pending_user_id` set and no session cookie; stale MFA carry-state on the login session is wiped on a fresh POST; `complete_login_after_mfa` rotates the cookie and clears carry-state.
 - **files edited/created:**
+  - `fief/services/authentication_flow.py` (added `complete_login_after_mfa` helper)
+  - `fief/apps/auth/routers/auth.py` (added MFA-aware branch in `/login` POST; injected login_session + repository)
+  - `tests/apps/auth/routers/test_login_mfa_branch.py` (new test file — 4 cases)
+  - `tests/apps/__init__.py`, `tests/apps/auth/__init__.py`, `tests/apps/auth/routers/__init__.py` (new package init files)
 
 ### T16: Tenant enforcement gate
 - **depends_on:** [T7, T8]

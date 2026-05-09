@@ -126,6 +126,30 @@ class AuthenticationFlow:
             await self.session_token_repository.delete(session_token)
         return await self.create_session_token(response, user_id)
 
+    async def complete_login_after_mfa(
+        self,
+        response: ResponseType,
+        login_session: LoginSession,
+        user: User,
+        *,
+        session_token: SessionToken | None,
+    ) -> ResponseType:
+        """Finalize a login that was paused for MFA verification.
+
+        Called by the MFA verification route (T14) after a successful TOTP or
+        recovery-code challenge. Rotates the session token (issuing a fresh
+        session cookie) and clears the MFA carry-state on the login session so
+        a subsequent /login POST starts clean.
+        """
+        response = await self.rotate_session_token(
+            response, user.id, session_token=session_token
+        )
+        login_session.mfa_pending_user_id = None
+        login_session.mfa_attempts_count = 0
+        login_session.mfa_locked_until = None
+        await self.login_session_repository.update(login_session)
+        return response
+
     async def create_or_update_grant(
         self, user_id: UUID4, client: Client, scope: list[str]
     ) -> Grant:
