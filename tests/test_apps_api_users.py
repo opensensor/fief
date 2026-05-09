@@ -339,6 +339,27 @@ class TestUpdateUser:
 
         assert json["tenant"]["id"] == str(user.tenant_id)
 
+    @pytest.mark.authenticated_admin
+    async def test_is_active_toggle(
+        self, test_client_api: httpx.AsyncClient, test_data: TestData
+    ):
+        user = test_data["users"]["regular"]
+        assert user.is_active is True
+
+        response = await test_client_api.patch(
+            f"/users/{user.id}", json={"is_active": False}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["is_active"] is False
+
+        response = await test_client_api.patch(
+            f"/users/{user.id}", json={"is_active": True}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["is_active"] is True
+
 
 @pytest.mark.asyncio
 class TestDeleteUser:

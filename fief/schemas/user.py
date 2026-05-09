@@ -71,6 +71,7 @@ class UserUpdateAdmin(UserUpdate[UF], Generic[UF]):
     email: EmailStr | None = None
     email_verified: bool | None = None
     password: str | None = None
+    is_active: bool | None = None
 
 
 class CreateAccessToken(BaseModel):
