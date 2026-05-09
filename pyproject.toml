@@ -236,6 +236,7 @@ dependencies = [
     "pydantic ==2.9.2",
     "python-multipart ==0.0.17",
     "pydantic-settings ==2.6.1",
+    "passlib[bcrypt] >=1.7.4",
     "pwdlib[argon2,bcrypt] ==0.2.1",
     "pyotp >=2.9",
     "segno >=1.6",
