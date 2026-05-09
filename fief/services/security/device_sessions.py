@@ -373,9 +373,10 @@ class DeviceSessionsService:
         as :data:`AuditLogMessage.USER_SESSIONS_AUTO_REVOKED`.
 
         ``reason`` is one of ``"password_change"``, ``"mfa_enrolled"``,
-        ``"mfa_disabled"``, ``"recovery_code_used"`` and is stored under
-        ``extra.trigger_reason`` so audit consumers can distinguish a
-        user-initiated "sign out everywhere" from an automatic
+        ``"mfa_disabled"``, ``"recovery_code_used"``,
+        ``"passkey_registered"``, ``"passkey_deleted"`` and is stored
+        under ``extra.trigger_reason`` so audit consumers can distinguish
+        a user-initiated "sign out everywhere" from an automatic
         post-password-change purge.
         """
 
