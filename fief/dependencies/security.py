@@ -19,16 +19,19 @@ from fief.dependencies.repositories import get_repository
 from fief.logger import AuditLogger
 from fief.models import Tenant, User
 from fief.repositories import (
+    UserLockoutRepository,
     UserMfaRecoveryCodeRepository,
     UserRepository,
     UserTotpSecretRepository,
 )
+from fief.services.security.account_lockout import AccountLockoutService
 from fief.services.security.rate_limiter import RateLimiter
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService
 
 __all__ = [
     "enforce_tenant_mfa_required",
+    "get_account_lockout_service",
     "get_rate_limiter",
     "get_recovery_code_service",
     "get_totp_service",
@@ -73,6 +76,23 @@ async def get_rate_limiter(
     :func:`fief.dependencies.redis.get_redis` to inject ``fakeredis``."""
 
     return RateLimiter(redis_client)
+
+
+async def get_account_lockout_service(
+    user_lockout_repo: UserLockoutRepository = Depends(
+        get_repository(UserLockoutRepository)
+    ),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> AccountLockoutService:
+    """Per-request :class:`AccountLockoutService` (SEC-1 T10).
+
+    Wired into ``/login`` (T11) and the admin unlock endpoint (T15). The
+    service is stateless apart from its repo + audit-logger handles, so a
+    fresh instance per request is the simplest correct model and matches
+    the MFA-1 service factories above.
+    """
+
+    return AccountLockoutService(user_lockout_repo, audit_logger)
 
 
 # ---------------------------------------------------------------------------
