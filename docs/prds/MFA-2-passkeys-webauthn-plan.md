@@ -625,9 +625,11 @@ Wave 10 (Rollout)
   - `delete` of foreign credential → returns False (not found in user-scoped query).
   Run RED first.
 - **validation:** Tests green.
-- **status:** Not Completed
+- **status:** Completed (delivered alongside T6 + T13 via TDD)
 - **log:**
-- **files edited/created:**
+  - T6 agent shipped `tests/services/test_webauthn_service.py` with 22 cases (commit `3f94a31`) covering: register/verify happy paths, expired challenge, one-shot replay guard, invalid attestation/signature, unknown credential_id, sign-count rollback, Apple/Google zero accept, first-use zero-stored accept, list/delete (real, missing, foreign), three `derive_rp_params` cases.
+  - T13 (commit `b5013c2`) refactored those tests when the service constructor changed; all 22 still green plus 10 new `test_mfa_state_recompute.py` cases covering the unified flag transitions.
+- **files edited/created:** see commits `3f94a31` and `b5013c2`.
 
 ### T16: Dashboard register flow integration
 - **depends_on:** [T7, T13]
@@ -642,9 +644,11 @@ Wave 10 (Rollout)
   - Passkey register triggers `auto_revoke_others` (T14 hook).
   Run RED first.
 - **validation:** Tests green.
-- **status:** Not Completed
+- **status:** Completed (delivered alongside T7 + T13 via TDD)
 - **log:**
-- **files edited/created:**
+  - T7 agent shipped `tests/apps/auth/routers/test_dashboard_passkeys.py` with 11 cases (commit `ecd7257`): GET listing, POST register-begin/finish (cred row created + mfa_enabled flipped + audit), PATCH rename, DELETE happy + 404 + state transitions.
+  - T13 (commit `b5013c2`) updated the test fake to mirror the recomputation now owned by `WebAuthnService`. All 11 still green.
+- **files edited/created:** see commits `ecd7257` and `b5013c2`.
 
 ### T17: Login challenge flow integration
 - **depends_on:** [T9]
@@ -658,9 +662,10 @@ Wave 10 (Rollout)
   - GET `/mfa/passkey` for a user with NO passkeys → fallback to /mfa/totp (or 404; pick a UX).
   Run RED first.
 - **validation:** Tests green.
-- **status:** Not Completed
+- **status:** Completed (delivered alongside T9 via TDD)
 - **log:**
-- **files edited/created:**
+  - T9 agent shipped `tests/apps/auth/routers/test_mfa_passkey.py` with 13 cases (commit `439faf2`): 5 GET (no pending user, no cookie, locked, empty-passkey short-circuit, render-with-options), 2 POST gating, 1 POST success (cookie issued + carry-state cleared + redirect_to JSON), 5 POST failure (CredentialNotFound, InvalidAssertion, SignCountRollback no-counter-increment, ChallengeExpired no-counter, 5th-strike lockout). 15 regression tests across `test_mfa_challenge.py` + `test_login_mfa_branch.py` still green.
+- **files edited/created:** see commit `439faf2`.
 
 ### T18: Dev rollout
 - **depends_on:** [T15, T16, T17]
