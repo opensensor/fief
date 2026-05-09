@@ -256,6 +256,7 @@ dependencies = [
     "typer>=0.13.0",
     "user-agents >=2.2",
     "uvicorn[standard]==0.32.0",
+    "webauthn >=2.0,<3",
     "WTForms==3.2.1",
     "zxcvbn-rs-py==0.1.1",
 ]
