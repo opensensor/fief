@@ -27,12 +27,16 @@ from fief.repositories import (
     UserRepository,
     UserTotpSecretRepository,
 )
+from fief.repositories.user_webauthn_credential import (
+    UserWebAuthnCredentialRepository,
+)
 from fief.services.security.account_lockout import AccountLockoutService
 from fief.services.security.breached_passwords import BreachedPasswordChecker
 from fief.services.security.device_sessions import DeviceSessionsService
 from fief.services.security.rate_limiter import RateLimiter
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService
+from fief.services.security.webauthn import WebAuthnService
 from fief.settings import settings
 
 __all__ = [
@@ -45,6 +49,7 @@ __all__ = [
     "get_rate_limiter",
     "get_recovery_code_service",
     "get_totp_service",
+    "get_webauthn_service",
 ]
 
 
@@ -191,6 +196,30 @@ async def get_device_sessions_service(
     """
 
     return DeviceSessionsService(session_repo, refresh_repo, audit_logger)
+
+
+# ---------------------------------------------------------------------------
+# MFA-2 T6: WebAuthn / passkey service
+# ---------------------------------------------------------------------------
+
+
+async def get_webauthn_service(
+    cred_repo: UserWebAuthnCredentialRepository = Depends(
+        get_repository(UserWebAuthnCredentialRepository)
+    ),
+    redis_client: redis.asyncio.Redis = Depends(get_redis),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> WebAuthnService:
+    """Per-request :class:`WebAuthnService` (MFA-2 T6).
+
+    Wired into the ``/security/passkeys`` dashboard routes (T7) and the
+    ``/mfa/passkey`` 2FA challenge (T9). Stateless apart from its three
+    dependency handles (credential repo + Redis + audit logger) — fresh
+    instance per request matches the rest of the security service
+    factories above.
+    """
+
+    return WebAuthnService(cred_repo, redis_client, audit_logger)
 
 
 # ---------------------------------------------------------------------------
