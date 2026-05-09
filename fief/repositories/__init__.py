@@ -27,6 +27,9 @@ from fief.repositories.user_mfa_recovery_code import UserMfaRecoveryCodeReposito
 from fief.repositories.user_permission import UserPermissionRepository
 from fief.repositories.user_role import UserRoleRepository
 from fief.repositories.user_totp_secret import UserTotpSecretRepository
+from fief.repositories.user_webauthn_credential import (
+    UserWebAuthnCredentialRepository,
+)
 from fief.repositories.webhook import WebhookRepository
 from fief.repositories.webhook_log import WebhookLogRepository
 
@@ -59,6 +62,7 @@ __all__ = [
     "UserPermissionRepository",
     "UserRoleRepository",
     "UserTotpSecretRepository",
+    "UserWebAuthnCredentialRepository",
     "WebhookRepository",
     "WebhookLogRepository",
     "get_repository",
