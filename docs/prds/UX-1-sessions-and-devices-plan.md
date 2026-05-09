@@ -379,20 +379,29 @@ Wave 10 (Rollout)
   - Bottom note (small grey text): "Signing out of a session won't end any active app calls until the access token expires (about 60 minutes)."
   - Privacy note (small grey text): "We don't store your location, only the IP address shown above."
 - **validation:** Jinja parse + visual review across all 3 brands. UI-only, no TDD.
-- **reason_not_testable:** pure HTML/Tailwind/HTMX template; verified by Jinja parse + visual review
-- **status:** Not Completed
+- **reason_not_testable:** pure HTML/Tailwind/HTMX template; verified by Jinja parse + visual review against the modernized dashboard pages
+- **status:** Completed
 - **log:**
+  - 2026-05-09: Created `fief/templates/auth/dashboard/security/sessions.html`. Extends `auth/dashboard/layout.html`; matches the modernized Profile / Password / Security visual language (gradient teal-emerald header tile, glass cards with `rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm`, gradient buttons). All user-visible strings wrapped in `{{ _("...") }}`.
+  - State branching: empty (`devices | length == 0`) renders the "No active sessions found." placeholder with a clock icon; single-current renders heading "Just this device" and suppresses the bulk-revoke button; multi renders the table + bulk button. The "Sign out of all other sessions" form is gated on `devices | length > 1` so the single-current case naturally hides it without duplicate logic.
+  - Per-row UI: device-kind glyphs picked from a `device_icon(kind)` macro (`computer` / `phone` / `tablet` / generic globe for `unknown`). Icon tile uses the teal-emerald gradient when `is_current`, slate gradient otherwise. Headline shows `device_label` plus a small `via {{ client_label }}` pill when present. Sub-line shows `last_seen_ip or "—"` (mono font) · `Last active {{ last_seen.strftime("%Y-%m-%d %H:%M") }}` — used the literal-strftime path because the project's Jinja env has no `now` global registered (verified `fief/templates.py`); a relative-time filter is a follow-up if support burden warrants it.
+  - Right-side action: "This device" emerald badge (with check icon) for `is_current`; otherwise a Revoke button with `hx-delete` to `auth.dashboard:sessions_revoke` (URL built via `tenant.url_path_for(..., device_key=row.device_key)`), `hx-confirm`, `hx-target="#device-row-{{ device_key }}"` + `hx-swap="outerHTML swap:300ms"` so a successful 204 cleanly removes the row, and `hx-on::error="this.disabled=false"` so a stale-key 404 doesn't lock the button.
+  - Bulk button: form posts via `hx-post` to `auth.dashboard:sessions_sign_out_others` with `hx-confirm`, `hx-swap="none"`, and `hx-on::after-request` that reloads the page on success so the freshly-revoked rows disappear and the badge counts re-derive server-side.
+  - Footer: two slate-500 notes (60-min access token grace + IP-only / no-location privacy disclosure), each prefixed with a small icon, matching the password-page tip-callout density without re-using its colored card so they read as supplementary copy not a CTA.
+  - Jinja parse: `python -c "from jinja2 import Environment, FileSystemLoader; env = Environment(loader=FileSystemLoader('fief/templates'), extensions=['jinja2.ext.i18n']); env.install_null_translations(newstyle=True); env.get_template('auth/dashboard/security/sessions.html'); print('parsed')"` → `parsed`.
+  - Boundary respected: ONLY the new template file added; no routes/services/sidebar touched (T14 owns sidebar; already landed on a separate file).
 - **files edited/created:**
+  - `fief/templates/auth/dashboard/security/sessions.html` (new)
 
 ### T14: Sidebar nav addition
 - **depends_on:** []
 - **location:** `fief/templates/auth/dashboard/sidebar.html`
 - **description:** Add a fourth nav item "Devices" alongside Profile / Password / Security. Use the same gradient-active-state pattern. Active when `current_route == 'auth.dashboard:sessions_index'` or starts with `auth.dashboard:sessions_`. Suggested icon: a small "monitor + phone" SVG. Insert after the Security item (around line 82, before `</nav>`).
 - **validation:** Jinja parse; visual hand-test confirms active highlighting matches Profile / Password / Security pattern.
-- **reason_not_testable:** template only
-- **status:** Not Completed
-- **log:**
-- **files edited/created:**
+- **reason_not_testable:** template only; verified by Jinja parse + visual review
+- **status:** Completed
+- **log:** Added Devices nav item after Security in `fief/templates/auth/dashboard/sidebar.html`. Mirrors the gradient-active-state pattern of the existing Profile / Password / Security items. Active state covers `auth.dashboard:sessions_index` plus any `auth.dashboard:sessions_*` route. Uses a monitor + side-panel SVG icon. Jinja parse passes (`parsed`).
+- **files edited/created:** fief/templates/auth/dashboard/sidebar.html
 
 ### T15: Service unit tests — DeviceSessionsService
 - **depends_on:** [T10]
@@ -410,9 +419,10 @@ Wave 10 (Rollout)
   - `auto_revoke_others(...)` audits `USER_SESSIONS_AUTO_REVOKED` with the reason in `extra`.
   Run RED first.
 - **validation:** `pytest tests/services/test_device_sessions_service.py` green.
-- **status:** Not Completed
+- **status:** Completed (delivered alongside T10 via TDD)
 - **log:**
-- **files edited/created:**
+  - T10 agent shipped `tests/services/test_device_sessions_service.py` with 13 cases (commit `fd12ab2`) covering: empty list, dedup with same UA+OS+/24, dedup boundary at /16, `is_current` flag, UA parse for known + empty, mobile → "phone", sort by last_seen desc, `revoke` deletes all underlying + audits, stale `device_key` returns None, `sign_out_others` keeps current session and revokes all refresh tokens, `auto_revoke_others` audits with `trigger_reason`.
+- **files edited/created:** see commit `fd12ab2`.
 
 ### T16: Route integration tests
 - **depends_on:** [T11]
@@ -427,9 +437,10 @@ Wave 10 (Rollout)
   - POST `/security/sessions/sign-out-others` → 200, audit `USER_SESSIONS_SIGNED_OUT_OTHERS` with `revoked_session_count` + `revoked_refresh_count`. Other devices return 401 on next request.
   Run RED first.
 - **validation:** All cases green.
-- **status:** Not Completed
+- **status:** Completed (delivered alongside T11 via TDD)
 - **log:**
-- **files edited/created:**
+  - T11 agent shipped `tests/apps/auth/routers/test_sessions.py` with 7 cases (commit `44f57ac`): two-device GET, single-session GET, stale-key 404, foreign-key 404 (authz), non-current 204 + `USER_SESSION_REVOKED` audit, current-device 303 redirect, sign-out-others 200 + `USER_SESSIONS_SIGNED_OUT_OTHERS` audit. Plus 21 regression tests across `test_dashboard_mfa.py` + `test_device_sessions_service.py` still green.
+- **files edited/created:** see commit `44f57ac`.
 
 ### T17: Auto-revocation tests
 - **depends_on:** [T12]
@@ -441,9 +452,10 @@ Wave 10 (Rollout)
   - Recovery code used during /mfa/recover → same with `reason="recovery_code_used"`. The "current" session is the one minted by `complete_login_after_mfa` so all PRE-recovery sessions are revoked.
   Run RED first.
 - **validation:** Tests green.
-- **status:** Not Completed
+- **status:** Completed (delivered alongside T12 via TDD)
 - **log:**
-- **files edited/created:**
+  - T12 agent shipped `tests/apps/auth/routers/test_auto_revoke_sessions.py` with 4 cases (commit `f127e0c`): all four trigger reasons (`password_change`, `mfa_enrolled`, `mfa_disabled`, `recovery_code_used`). Recovery flow correctly preserves the post-MFA session minted by `complete_login_after_mfa`. Plus 48 regression tests across MFA + login + sessions + breached-password handlers all green.
+- **files edited/created:** see commit `f127e0c`.
 
 ### T18: Dev rollout
 - **depends_on:** [T15, T16, T17]
