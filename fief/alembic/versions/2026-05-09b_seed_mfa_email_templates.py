@@ -70,13 +70,16 @@ def upgrade():
         ).first()
         if existing is not None:
             continue
+        # Bind id with explicit Uuid type so asyncpg renders it as the
+        # postgres uuid type (not VARCHAR). The bare str() form failed in
+        # production with DatatypeMismatchError.
         bind.execute(
             sa.text(
                 f"INSERT INTO {table} "
                 "(id, created_at, updated_at, type, subject, content) "
                 "VALUES (:id, :created_at, :updated_at, :t, :s, :c)"
             ).bindparams(
-                id=str(uuid.uuid4()),
+                sa.bindparam("id", value=uuid.uuid4(), type_=sa.Uuid()),
                 created_at=now,
                 updated_at=now,
                 t=type_,
