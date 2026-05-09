@@ -1,3 +1,6 @@
+import asyncio
+import hashlib
+import time
 import urllib.parse
 from datetime import UTC, datetime, timedelta
 
@@ -30,11 +33,14 @@ from fief.dependencies.auth import (
     has_valid_session_token,
 )
 from fief.dependencies.authentication_flow import get_authentication_flow
+from fief.dependencies.client_ip import ClientIpInfo, get_client_ip_info
 from fief.dependencies.login_hint import LoginHint, get_login_hint
 from fief.dependencies.logger import get_audit_logger
 from fief.dependencies.oauth_provider import get_oauth_providers
 from fief.dependencies.repositories import get_repository
 from fief.dependencies.security import (
+    get_account_lockout_service,
+    get_rate_limiter,
     get_recovery_code_service,
     get_totp_service,
 )
@@ -68,10 +74,30 @@ from fief.repositories.session_token import SessionTokenRepository
 from fief.schemas.auth import LogoutError
 from fief.services.acr import ACR
 from fief.services.authentication_flow import AuthenticationFlow
+from fief.services.security.account_lockout import (
+    AccountLocked,
+    AccountLockoutService,
+)
+from fief.services.security.rate_limiter import (
+    RateLimitExceeded,
+    RateLimiter,
+    RateLimitWindow,
+)
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService, VerifyResult
 from fief.services.user_manager import InvalidEmailVerificationCodeError, UserManager
 from fief.settings import settings
+
+
+def _hash_key(key: str) -> str:
+    """Stable, truncated SHA-256 hash for audit log ``key_hash`` fields.
+
+    SEC-1 audit entries record bucket identifiers as a 16-char hex hash so
+    support can correlate two log lines reporting the same bucket without
+    ever seeing the raw email address or IP — see T17 of the plan.
+    """
+
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 # Maximum allowed wrong MFA attempts on a single LoginSession before it is
 # locked. Hard-coded here (rather than in settings) so the value is part of
@@ -178,7 +204,21 @@ async def login(
     login_session_repository: LoginSessionRepository = Depends(
         get_repository(LoginSessionRepository)
     ),
+    user_repository: UserRepository = Depends(get_repository(UserRepository)),
+    ip_info: ClientIpInfo = Depends(get_client_ip_info),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    account_lockout: AccountLockoutService = Depends(
+        get_account_lockout_service
+    ),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
 ):
+    # Track wall-clock for the SEC-1 latency floor on failure paths. We
+    # initialise the timer at the very top of the handler (NOT after form
+    # validation) so the floor includes the cost of form parsing — a
+    # noticeably-faster bad-credentials response would otherwise leak that
+    # the validation path exited early.
+    start_time = time.monotonic()
+
     # Prefill email with login_hint if it's a string
     initial_form_data = None
     if isinstance(login_hint, str):
@@ -199,14 +239,152 @@ async def login(
     )
     form = await form_helper.get_form()
 
+    async def _floor_latency() -> None:
+        """Sleep until the wall-clock from ``start_time`` reaches the
+        configured ``auth_failure_min_latency_ms`` floor. No-op when the
+        request is already over the floor."""
+
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        remaining_ms = settings.auth_failure_min_latency_ms - elapsed_ms
+        if remaining_ms > 0:
+            await asyncio.sleep(remaining_ms / 1000.0)
+
+    async def _generic_login_error_response(
+        retry_after: int | None = None,
+    ):
+        """Render the same 'Invalid email or password' the bad-credentials
+        path returns, with an optional ``Retry-After`` header for HTTP
+        clients that respect it (browsers ignore it on form posts; SDKs
+        and APIs may not)."""
+
+        await _floor_latency()
+        response = await form_helper.get_error_response(
+            _("Invalid email or password"), "bad_credentials"
+        )
+        if retry_after is not None:
+            response.headers["Retry-After"] = str(retry_after)
+        return response
+
     if await form_helper.is_submitted_and_valid():
+        # Normalised email used for our own keys (rate-limit bucket, lockout
+        # row lookup, audit log). ``UserManager.authenticate`` already
+        # normalises case-insensitively at the DB level via
+        # ``email_lower``; we mirror that here so ``Foo@x.com`` and
+        # ``foo@x.com`` hit the same bucket and lockout row.
+        email_normalized = form.email.data.strip().lower()
+
+        # ---- Pre-authenticate gates (SEC-1 T11) -------------------------
+        # Rate limits and lockout are gated by ``settings.rate_limit_enabled``
+        # so a bad rollout / Redis problem can be flipped off via
+        # configuration. The factories themselves remain wired regardless;
+        # we only skip the side effects here.
+        if settings.rate_limit_enabled:
+            # 1. Per-IP rate limit. Bucketed against ``ip_info.rate_limit_key``
+            #    (IPv6 collapsed to /64) so an attacker can't trivially rotate
+            #    through a personal IPv6 allocation.
+            try:
+                await rate_limiter.check(
+                    scope="login_ip",
+                    key=ip_info.rate_limit_key,
+                    window=RateLimitWindow(
+                        settings.rate_limit_login_per_ip_per_min, 60
+                    ),
+                )
+            except RateLimitExceeded as exc:
+                audit_logger(
+                    AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                    extra={
+                        "scope": "login_ip",
+                        "key_hash": _hash_key(ip_info.rate_limit_key),
+                        "endpoint": "/login",
+                        "client_ip": ip_info.raw,
+                    },
+                )
+                return await _generic_login_error_response(
+                    retry_after=exc.retry_after_seconds
+                )
+
+            # 2. Per-email rate limit. Caps the credential-stuffing rate
+            #    against any single account from any source IP combined.
+            try:
+                await rate_limiter.check(
+                    scope="login_email",
+                    key=email_normalized,
+                    window=RateLimitWindow(
+                        settings.rate_limit_login_per_email_per_min, 60
+                    ),
+                )
+            except RateLimitExceeded as exc:
+                audit_logger(
+                    AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                    extra={
+                        "scope": "login_email",
+                        "key_hash": _hash_key(email_normalized),
+                        "endpoint": "/login",
+                        "client_ip": ip_info.raw,
+                    },
+                )
+                return await _generic_login_error_response(
+                    retry_after=exc.retry_after_seconds
+                )
+
+        # 3. Lockout pre-check. Look up the user up-front so we can both
+        #    consult the lockout table AND, if authenticate fails below,
+        #    increment the per-account counter (the user reference is
+        #    reused so we don't run the lookup twice). The presence of a
+        #    matching user is NOT leaked: the response shape is identical
+        #    whether the user exists or not.
+        existing_user: User | None = None
+        if settings.rate_limit_enabled:
+            existing_user = await user_repository.get_by_email_and_tenant(
+                email_normalized, tenant.id
+            )
+            if existing_user is not None:
+                try:
+                    await account_lockout.check_locked(existing_user)
+                except AccountLocked as exc:
+                    # Treat lockout as a rate-limit equivalent for telemetry
+                    # parity (SEC-1 plan T11).
+                    audit_logger(
+                        AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                        subject_user_id=existing_user.id,
+                        extra={
+                            "scope": "account_lockout",
+                            "endpoint": "/login",
+                            "client_ip": ip_info.raw,
+                        },
+                    )
+                    return await _generic_login_error_response(
+                        retry_after=exc.retry_after_seconds
+                    )
+
+        # ---- Authenticate (unchanged) -----------------------------------
         user = await user_manager.authenticate(
             form.email.data, form.password.data, tenant.id
         )
         if user is None or not user.is_active:
-            return await form_helper.get_error_response(
-                _("Invalid email or password"), "bad_credentials"
+            # Bump the per-account failed counter when the user record
+            # exists. ``record_failed`` may set ``locked_until`` if the
+            # ladder threshold was crossed; that's audited from inside the
+            # service.
+            if settings.rate_limit_enabled and existing_user is not None:
+                await account_lockout.record_failed(existing_user)
+            audit_logger(
+                AuditLogMessage.USER_LOGIN_FAILED,
+                subject_user_id=existing_user.id
+                if existing_user is not None
+                else None,
+                extra={
+                    "email": email_normalized,
+                    "client_ip": ip_info.raw,
+                },
             )
+            return await _generic_login_error_response()
+
+        # ---- Successful authenticate path -------------------------------
+        # Wipe SEC-1 lockout state so the next failure starts from zero.
+        if settings.rate_limit_enabled:
+            await account_lockout.reset(user)
 
         # Always clear stale MFA carry-state at the start of a fresh /login
         # POST. This defends against reusing a session that retained pending

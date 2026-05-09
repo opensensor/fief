@@ -24,6 +24,7 @@ from fief.db.migration import migrate_schema
 from fief.db.types import DatabaseConnectionParameters, DatabaseType, get_driver
 from fief.dependencies.db import get_main_async_session
 from fief.dependencies.fief import get_fief
+from fief.dependencies.redis import get_redis
 from fief.dependencies.tasks import get_send_task
 from fief.dependencies.tenant_email_domain import get_tenant_email_domain
 from fief.dependencies.theme import get_theme_preview
@@ -282,12 +283,33 @@ def csrf_token() -> str:
 
 
 @pytest_asyncio.fixture
+async def fake_redis():
+    """Process-local fakeredis singleton spliced into ``get_redis``.
+
+    SEC-1 wires the rate limiter into ``/login`` (and queued T12-T14
+    routes); ``rate_limit_enabled`` defaults to True, so any auth-route
+    test that posts a form would otherwise hit the real redis_url. We
+    short-circuit it here with an in-process fake so tests run hermetic
+    and the rate-limiter exercises real ZADD/ZCARD pipelines.
+    """
+
+    import fakeredis.aioredis
+
+    client = fakeredis.aioredis.FakeRedis()
+    try:
+        yield client
+    finally:
+        await client.aclose()
+
+
+@pytest_asyncio.fixture
 async def test_client_generator(
     main_session: AsyncSession,
     send_task_mock: MagicMock,
     fief_client_mock: MagicMock,
     theme_preview_mock: MagicMock,
     tenant_email_domain_mock: MagicMock,
+    fake_redis,
     authenticated_admin: Callable[
         [httpx.AsyncClient], Coroutine[None, None, httpx.AsyncClient]
     ],
@@ -302,6 +324,7 @@ async def test_client_generator(
         app.dependency_overrides[get_tenant_email_domain] = (
             lambda: tenant_email_domain_mock
         )
+        app.dependency_overrides[get_redis] = lambda: fake_redis
         settings.fief_admin_session_cookie_domain = ""
 
         async with asgi_lifespan.LifespanManager(app):
