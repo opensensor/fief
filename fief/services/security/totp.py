@@ -39,11 +39,15 @@ from fief.models.user import User
 from fief.repositories.user import UserRepository
 from fief.repositories.user_mfa_recovery_code import UserMfaRecoveryCodeRepository
 from fief.repositories.user_totp_secret import UserTotpSecretRepository
+from fief.repositories.user_webauthn_credential import (
+    UserWebAuthnCredentialRepository,
+)
 from fief.services.security.encryption import (
     MfaSecretDecryptionError,
     decrypt,
     encrypt,
 )
+from fief.services.security.mfa_state import recompute_mfa_enabled
 from fief.tasks.base import SendTask
 from fief.tasks.mfa import on_mfa_state_changed
 
@@ -129,11 +133,18 @@ class TotpService:
         recovery_repo: UserMfaRecoveryCodeRepository,
         user_repo: UserRepository,
         audit_logger: AuditLogger,
+        webauthn_repo: UserWebAuthnCredentialRepository,
     ) -> None:
         self.totp_repo = totp_repo
         self.recovery_repo = recovery_repo
         self.user_repo = user_repo
         self.audit_logger = audit_logger
+        # Needed by :meth:`disable` (MFA-2 T13): when the user disables
+        # TOTP we must NOT unconditionally flip ``mfa_enabled=False``;
+        # if a passkey is still registered, the flag stays True. The
+        # shared :func:`recompute_mfa_enabled` helper consults this
+        # repo's ``count_for_user`` to make that determination.
+        self.webauthn_repo = webauthn_repo
 
     async def begin_enrollment(self, user: User, label: str) -> EnrollmentBundle:
         """Start (or restart) TOTP enrollment for ``user``.
@@ -315,8 +326,18 @@ class TotpService:
         await self.totp_repo.delete_by_user_id(user.id)
         await self.recovery_repo.delete_by_user_id(user.id)
 
-        user.mfa_enabled = False
-        await self.user_repo.update(user)
+        # MFA-2 T13: recompute ``mfa_enabled`` rather than unconditionally
+        # flipping False. If the user still has a registered passkey,
+        # they're still MFA-enrolled; only when no factor remains does
+        # the flag flip off. The helper is also a no-op when the desired
+        # state already matches (e.g. orphan self-heal where the flag
+        # was never True).
+        await recompute_mfa_enabled(
+            user,
+            totp_repo=self.totp_repo,
+            webauthn_repo=self.webauthn_repo,
+            user_repo=self.user_repo,
+        )
 
         self.audit_logger(
             AuditLogMessage.USER_MFA_DISABLED, subject_user_id=user.id

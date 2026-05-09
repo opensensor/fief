@@ -57,9 +57,12 @@ from fief.services.security.webauthn import (
 
 
 class _FakeUser:
-    def __init__(self, email: str = "user@example.com") -> None:
+    def __init__(
+        self, email: str = "user@example.com", *, mfa_enabled: bool = False
+    ) -> None:
         self.id = uuid.uuid4()
         self.email = email
+        self.mfa_enabled = mfa_enabled
 
 
 class _FakeCredentialRepo:
@@ -100,6 +103,10 @@ class _FakeCredentialRepo:
             r for r in self.rows if not (r.id == id and r.user_id == user_id)
         ]
         return before - len(self.rows)
+
+    async def count_for_user(self, user_id: uuid.UUID) -> int:
+        self.calls.append(("count_for_user", user_id))
+        return sum(1 for r in self.rows if r.user_id == user_id)
 
     async def update_after_assertion(
         self,
@@ -164,13 +171,59 @@ def audit_logger() -> MagicMock:
     return MagicMock()
 
 
+class _FakeTotpRepo:
+    """Stand-in for :class:`UserTotpSecretRepository`.
+
+    Only ``get_confirmed_by_user_id`` is consulted by
+    :func:`recompute_mfa_enabled` (called from
+    ``WebAuthnService.finish_registration`` and ``.delete``). Default
+    "no TOTP" — tests that need to assert "passkey delete keeps
+    mfa_enabled=True because TOTP exists" override ``has_totp=True``.
+    """
+
+    def __init__(self, *, has_totp: bool = False) -> None:
+        self.has_totp = has_totp
+
+    async def get_confirmed_by_user_id(self, user_id: uuid.UUID) -> Any:
+        return object() if self.has_totp else None
+
+
+class _FakeUserRepo:
+    """Stand-in for :class:`UserRepository`. Tracks ``update`` calls so
+    tests can assert when ``mfa_enabled`` was actually flipped."""
+
+    def __init__(self) -> None:
+        self.updated: list[Any] = []
+
+    async def update(self, user: Any) -> None:
+        self.updated.append(user)
+
+
+@pytest.fixture
+def totp_repo() -> _FakeTotpRepo:
+    return _FakeTotpRepo()
+
+
+@pytest.fixture
+def user_repo() -> _FakeUserRepo:
+    return _FakeUserRepo()
+
+
 @pytest.fixture
 def service(
     credential_repo: _FakeCredentialRepo,
     fake_redis: fakeredis.aioredis.FakeRedis,
     audit_logger: MagicMock,
+    totp_repo: _FakeTotpRepo,
+    user_repo: _FakeUserRepo,
 ) -> WebAuthnService:
-    return WebAuthnService(credential_repo, fake_redis, audit_logger)
+    return WebAuthnService(
+        credential_repo,
+        fake_redis,
+        audit_logger,
+        totp_repo=totp_repo,
+        user_repo=user_repo,
+    )
 
 
 @pytest.fixture

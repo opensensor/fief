@@ -62,12 +62,16 @@ async def get_totp_service(
     ),
     user_repo: UserRepository = Depends(get_repository(UserRepository)),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    webauthn_repo: UserWebAuthnCredentialRepository = Depends(
+        get_repository(UserWebAuthnCredentialRepository)
+    ),
 ) -> TotpService:
     return TotpService(
         totp_repo=totp_repo,
         recovery_repo=recovery_repo,
         user_repo=user_repo,
         audit_logger=audit_logger,
+        webauthn_repo=webauthn_repo,
     )
 
 
@@ -209,17 +213,28 @@ async def get_webauthn_service(
     ),
     redis_client: redis.asyncio.Redis = Depends(get_redis),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    totp_repo: UserTotpSecretRepository = Depends(
+        get_repository(UserTotpSecretRepository)
+    ),
+    user_repo: UserRepository = Depends(get_repository(UserRepository)),
 ) -> WebAuthnService:
     """Per-request :class:`WebAuthnService` (MFA-2 T6).
 
     Wired into the ``/security/passkeys`` dashboard routes (T7) and the
-    ``/mfa/passkey`` 2FA challenge (T9). Stateless apart from its three
-    dependency handles (credential repo + Redis + audit logger) — fresh
-    instance per request matches the rest of the security service
-    factories above.
+    ``/mfa/passkey`` 2FA challenge (T9). Stateless apart from its
+    dependency handles (credential repo + Redis + audit logger + the
+    TOTP / user repos used by the MFA-2 T13 ``recompute_mfa_enabled``
+    helper) — fresh instance per request matches the rest of the
+    security service factories above.
     """
 
-    return WebAuthnService(cred_repo, redis_client, audit_logger)
+    return WebAuthnService(
+        cred_repo,
+        redis_client,
+        audit_logger,
+        totp_repo=totp_repo,
+        user_repo=user_repo,
+    )
 
 
 # ---------------------------------------------------------------------------

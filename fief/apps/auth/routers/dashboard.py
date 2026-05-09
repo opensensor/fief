@@ -31,7 +31,6 @@ from fief.dependencies.users import get_user_manager, get_user_update_model
 from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
 from fief.models import Brand, SessionToken, Tenant, Theme, User
-from fief.repositories import UserRepository, UserTotpSecretRepository
 from fief.repositories.user_webauthn_credential import (
     UserWebAuthnCredentialRepository,
 )
@@ -803,9 +802,10 @@ async def sessions_sign_out_others(
 # RP scope is per-brand (see ``derive_rp_params``): a passkey set on
 # ``lightnvr.com`` is intentionally distinct from one on ``owlbooks.ai``.
 #
-# T13 hook: register flips ``mfa_enabled=True`` if the user wasn't already
-# enrolled; delete recomputes the flag (False iff no remaining passkeys
-# AND no confirmed TOTP). T13 will refactor this into a shared helper.
+# T13: ``WebAuthnService.finish_registration`` and
+# ``WebAuthnService.delete`` own the ``users.mfa_enabled`` recomputation
+# via the shared :func:`fief.services.security.mfa_state.recompute_mfa_enabled`
+# helper. Routes don't have to thread the same logic per call-site.
 #
 # T14 hook: register and delete both call ``auto_revoke_others`` to purge
 # every other session/refresh-token. Reasons distinguish the trigger
@@ -814,31 +814,6 @@ async def sessions_sign_out_others(
 # **No "last credential" guard in v1** (PRD line 82). T13 keeps
 # ``mfa_enabled`` coherent when the user removes their last factor; if
 # support reports confusion the guard can be added as a follow-up.
-
-
-async def _recompute_mfa_enabled(
-    user: User,
-    *,
-    user_repo: UserRepository,
-    totp_repo: UserTotpSecretRepository,
-    webauthn_repo: UserWebAuthnCredentialRepository,
-) -> None:
-    """Re-derive ``users.mfa_enabled`` from the user's enrolled factors.
-
-    The flag is True iff at least one second factor is enrolled (a
-    confirmed TOTP secret OR at least one WebAuthn credential). Inlined
-    here for T7; T13 will lift this into a shared helper used by every
-    factor-state-changing route.
-    """
-
-    has_totp = (
-        await totp_repo.get_confirmed_by_user_id(user.id)
-    ) is not None
-    has_passkey = await webauthn_repo.count_for_user(user.id) > 0
-    desired = has_totp or has_passkey
-    if user.mfa_enabled != desired:
-        user.mfa_enabled = desired
-        await user_repo.update(user)
 
 
 @router.get("/security/passkeys", name="auth.dashboard:passkeys_index")
@@ -888,13 +863,6 @@ async def passkeys_register_finish(
     tenant: Tenant = Depends(get_current_tenant),
     brand: Brand | None = Depends(get_current_brand),
     webauthn_service: WebAuthnService = Depends(get_webauthn_service),
-    user_repo: UserRepository = Depends(get_repository(UserRepository)),
-    totp_repo: UserTotpSecretRepository = Depends(
-        get_repository(UserTotpSecretRepository)
-    ),
-    webauthn_repo: UserWebAuthnCredentialRepository = Depends(
-        get_repository(UserWebAuthnCredentialRepository)
-    ),
     session_token: SessionToken = Depends(get_session_token_or_login),
     device_sessions_service: DeviceSessionsService = Depends(
         get_device_sessions_service
@@ -902,22 +870,14 @@ async def passkeys_register_finish(
 ):
     rp_id, _, origin = derive_rp_params(brand, tenant)
     attestation = await request.json()
+    # WebAuthnService.finish_registration owns the T13 ``mfa_enabled``
+    # recompute internally (via the shared helper) so the route doesn't
+    # need to thread the totp/webauthn/user repos.
     cred = await webauthn_service.finish_registration(
         user,
         rp_id=rp_id,
         origin=origin,
         attestation_response=attestation,
-    )
-
-    # T13 hook (inline for now): recompute ``mfa_enabled`` from the
-    # user's enrolled factors. After a successful register we know there
-    # is at least one passkey, so this will flip True if it wasn't
-    # already.
-    await _recompute_mfa_enabled(
-        user,
-        user_repo=user_repo,
-        totp_repo=totp_repo,
-        webauthn_repo=webauthn_repo,
     )
 
     # T14 hook: enrolling a new second factor is a credential-elevation
@@ -971,34 +931,21 @@ async def passkeys_delete(
     credential_id: UUID,
     user: User = Depends(get_verified_email_user_from_session_token_or_verify),
     webauthn_service: WebAuthnService = Depends(get_webauthn_service),
-    user_repo: UserRepository = Depends(get_repository(UserRepository)),
-    totp_repo: UserTotpSecretRepository = Depends(
-        get_repository(UserTotpSecretRepository)
-    ),
-    webauthn_repo: UserWebAuthnCredentialRepository = Depends(
-        get_repository(UserWebAuthnCredentialRepository)
-    ),
     session_token: SessionToken = Depends(get_session_token_or_login),
     device_sessions_service: DeviceSessionsService = Depends(
         get_device_sessions_service
     ),
 ):
+    # WebAuthnService.delete owns the T13 ``mfa_enabled`` recompute
+    # internally on a successful delete (via the shared helper). If the
+    # user just removed their last second factor (no remaining passkeys
+    # AND no confirmed TOTP), the flag flips False — they have opted
+    # out of MFA, which is their right (PRD line 82 deferral).
     deleted = await webauthn_service.delete(
         user=user, credential_id=credential_id
     )
     if not deleted:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
-
-    # T13 hook (inline for now): recompute ``mfa_enabled``. If the user
-    # just removed their last second factor (no remaining passkeys AND
-    # no confirmed TOTP), this flips the flag False — they have opted
-    # out of MFA, which is their right (PRD line 82 deferral).
-    await _recompute_mfa_enabled(
-        user,
-        user_repo=user_repo,
-        totp_repo=totp_repo,
-        webauthn_repo=webauthn_repo,
-    )
 
     # T14 hook: deleting a credential is itself a credential-state
     # change — purge every other session/refresh token. The current

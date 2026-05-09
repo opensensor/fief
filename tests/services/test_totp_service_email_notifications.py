@@ -77,6 +77,22 @@ class _FakeUserRepo:
         self.updated.append(user)
 
 
+class _FakeWebauthnRepo:
+    """Stand-in for :class:`UserWebAuthnCredentialRepository`.
+
+    The TOTP service consults ``count_for_user`` on the disable path
+    (via the shared :func:`recompute_mfa_enabled` helper). Default
+    "no passkeys" so disable still flips ``mfa_enabled=False`` for
+    these single-factor TOTP tests.
+    """
+
+    def __init__(self, *, passkey_count: int = 0) -> None:
+        self.passkey_count = passkey_count
+
+    async def count_for_user(self, user_id: uuid.UUID) -> int:
+        return self.passkey_count
+
+
 @pytest.fixture
 def totp_repo() -> _FakeTotpRepo:
     return _FakeTotpRepo()
@@ -90,6 +106,11 @@ def recovery_repo() -> _FakeRecoveryRepo:
 @pytest.fixture
 def user_repo() -> _FakeUserRepo:
     return _FakeUserRepo()
+
+
+@pytest.fixture
+def webauthn_repo() -> _FakeWebauthnRepo:
+    return _FakeWebauthnRepo()
 
 
 @pytest.fixture
@@ -120,8 +141,11 @@ def service(
     recovery_repo: _FakeRecoveryRepo,
     user_repo: _FakeUserRepo,
     audit_logger: MagicMock,
+    webauthn_repo: _FakeWebauthnRepo,
 ) -> TotpService:
-    return TotpService(totp_repo, recovery_repo, user_repo, audit_logger)
+    return TotpService(
+        totp_repo, recovery_repo, user_repo, audit_logger, webauthn_repo
+    )
 
 
 @pytest.fixture

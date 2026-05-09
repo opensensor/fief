@@ -59,9 +59,12 @@ from webauthn.helpers.structs import (
 
 from fief.logger import AuditLogger
 from fief.models import AuditLogMessage, UserWebAuthnCredential
+from fief.repositories.user import UserRepository
+from fief.repositories.user_totp_secret import UserTotpSecretRepository
 from fief.repositories.user_webauthn_credential import (
     UserWebAuthnCredentialRepository,
 )
+from fief.services.security.mfa_state import recompute_mfa_enabled
 
 if TYPE_CHECKING:
     from fief.models import Brand, Tenant, User
@@ -185,10 +188,18 @@ class WebAuthnService:
         credential_repo: UserWebAuthnCredentialRepository,
         redis: redis.asyncio.Redis,
         audit_logger: AuditLogger,
+        totp_repo: UserTotpSecretRepository,
+        user_repo: UserRepository,
     ) -> None:
         self.credential_repo = credential_repo
         self.redis = redis
         self.audit_logger = audit_logger
+        # ``totp_repo`` + ``user_repo`` are required by the MFA-2 T13
+        # recompute path in :meth:`finish_registration` and :meth:`delete`:
+        # the service owns the ``users.mfa_enabled`` flip so routes don't
+        # have to thread the same logic per call-site.
+        self.totp_repo = totp_repo
+        self.user_repo = user_repo
 
     # ------------------------------------------------------------------
     # Registration ceremony
@@ -328,6 +339,17 @@ class WebAuthnService:
             attestation_obj=verified.attestation_object,
         )
         await self.credential_repo.create(credential)
+
+        # MFA-2 T13: registering a passkey transitions the user to
+        # MFA-enrolled if they weren't already (the helper is a no-op
+        # when the flag is already True). This is the canonical
+        # ``mfa_enabled=False -> True`` flip on first-passkey enrollment.
+        await recompute_mfa_enabled(
+            user,
+            totp_repo=self.totp_repo,
+            webauthn_repo=self.credential_repo,
+            user_repo=self.user_repo,
+        )
 
         self.audit_logger(
             AuditLogMessage.USER_PASSKEY_REGISTERED,
@@ -543,6 +565,17 @@ class WebAuthnService:
             credential_id, user.id
         )
         if rowcount > 0:
+            # MFA-2 T13: removing a passkey may have left the user with
+            # no remaining factors — recompute ``mfa_enabled`` from the
+            # authoritative DB state. If they still have a confirmed
+            # TOTP secret OR another passkey, the flag stays True; only
+            # when no factor remains does it flip False.
+            await recompute_mfa_enabled(
+                user,
+                totp_repo=self.totp_repo,
+                webauthn_repo=self.credential_repo,
+                user_repo=self.user_repo,
+            )
             self.audit_logger(
                 AuditLogMessage.USER_PASSKEY_DELETED,
                 subject_user_id=user.id,

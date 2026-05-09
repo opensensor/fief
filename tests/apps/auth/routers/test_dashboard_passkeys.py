@@ -34,10 +34,11 @@ from fief.apps import auth_app
 from fief.db import AsyncSession
 from fief.dependencies.security import get_webauthn_service
 from fief.models import UserWebAuthnCredential
-from fief.repositories import UserRepository
+from fief.repositories import UserRepository, UserTotpSecretRepository
 from fief.repositories.user_webauthn_credential import (
     UserWebAuthnCredentialRepository,
 )
+from fief.services.security.mfa_state import recompute_mfa_enabled
 from fief.settings import settings
 from fief.templates import templates
 from tests.data import TestData, session_token_tokens
@@ -90,11 +91,13 @@ class _FakeWebAuthnService:
     / ``list_for_user_result`` / ``delete_result`` before issuing the request,
     then read ``calls`` to assert the route's behaviour.
 
-    On ``finish_registration``, the fake also persists ``finish_registration_result``
-    via the real :class:`UserWebAuthnCredentialRepository` (when a session is
-    bound) so the route's downstream ``_recompute_mfa_enabled`` call sees the
-    new row in ``count_for_user``. This mirrors the real service which writes
-    the row before returning.
+    The fake replicates the real service's MFA-2 T13 contract: both
+    ``finish_registration`` and ``delete`` recompute ``users.mfa_enabled``
+    after their state-changing DB writes via the shared
+    :func:`recompute_mfa_enabled` helper. ``finish_registration`` persists
+    ``finish_registration_result`` via the real repository so the helper's
+    ``count_for_user`` query sees the new row; ``delete`` honours
+    ``delete_result`` and feeds the same helper.
     """
 
     def __init__(self, session: AsyncSession | None = None) -> None:
@@ -145,6 +148,13 @@ class _FakeWebAuthnService:
             await UserWebAuthnCredentialRepository(self.session).create(
                 self.finish_registration_result
             )
+            # Mirror the real service's MFA-2 T13 recompute step.
+            await recompute_mfa_enabled(
+                user,
+                totp_repo=UserTotpSecretRepository(self.session),
+                webauthn_repo=UserWebAuthnCredentialRepository(self.session),
+                user_repo=UserRepository(self.session),
+            )
         return self.finish_registration_result
 
     async def list_for_user(self, user) -> list[UserWebAuthnCredential]:
@@ -155,6 +165,15 @@ class _FakeWebAuthnService:
         self.calls.append(
             ("delete", {"user_id": user.id, "credential_id": credential_id})
         )
+        # Mirror the real service: recompute ``mfa_enabled`` only on a
+        # successful delete (no row removed → no audit, no recompute).
+        if self.delete_result and self.session is not None:
+            await recompute_mfa_enabled(
+                user,
+                totp_repo=UserTotpSecretRepository(self.session),
+                webauthn_repo=UserWebAuthnCredentialRepository(self.session),
+                user_repo=UserRepository(self.session),
+            )
         return self.delete_result
 
 
