@@ -164,9 +164,16 @@ Wave 9 (Rollout)
   - On `User`: add `mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)` (denormalized; flipped by enroll/disable/recovery flows so the `/login` route does a single boolean read instead of joining the secrets table on every request).
   - On `User`: add the two back-relationships using string-based references so we don't depend on import order: `totp_secret = relationship("UserTotpSecret", back_populates="user", uselist=False, cascade="all, delete-orphan")` and `mfa_recovery_codes = relationship("UserMfaRecoveryCode", back_populates="user", cascade="all, delete-orphan")`.
 - **validation:** Models import; existing `LoginSession` callers compile. After T6 also lands, the SQLAlchemy mapper resolves both sides without warnings.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - Added `mfa_enabled` (Boolean, default=False, nullable=False) to `User`, plus `totp_secret` (uselist=False, cascade `all, delete-orphan`) and `mfa_recovery_codes` (cascade `all, delete-orphan`) back-relationships using string-based references. Conditional `TYPE_CHECKING` imports for `UserTotpSecret` / `UserMfaRecoveryCode` keep the type annotations resolvable without runtime import-order coupling.
+  - Added `mfa_pending_user_id` (`GUID` FK to `users.id`, `ondelete="SET NULL"`, nullable, default=None — matching the project's existing nullable-FK pattern in `tenant.py` / `brand.py`), `mfa_attempts_count` (int, default=0, NOT NULL), and `mfa_locked_until` (`TIMESTAMPAware(timezone=True)`, nullable, default=None — using the project-standard wrapper instead of raw `DateTime`, mirroring `refresh_token.py` and `user_totp_secret.py`) to `LoginSession`. Imported `User` directly (same pattern as `refresh_token.py` / `session_token.py`).
+  - TDD: wrote `tests/models/test_user_mfa_fields.py` with 7 cases (column defaults, nullability, FK target table, both relationship declarations + uselist + cascade); confirmed RED before implementing, GREEN after. Re-ran the T6 smoke test — still passes (`tests/models/test_mfa_models_smoke.py`). Verified `sqlalchemy.orm.configure_mappers()` runs clean under `python -W error` (no SAWarning about missing back-populates on either side now that both T6 and T8 have landed).
+  - Note: spec called for `DateTime(timezone=True)` on `mfa_locked_until`; used `TIMESTAMPAware(timezone=True)` instead because every other timestamp column in the project uses that wrapper to preserve offset-aware datetimes on SQLite/MySQL. Equivalent on PostgreSQL.
 - **files edited/created:**
+  - `fief/models/user.py` (modified)
+  - `fief/models/login_session.py` (modified)
+  - `tests/models/test_user_mfa_fields.py` (new)
 
 ### T9: Repositories — UserTotpSecretRepository + UserMfaRecoveryCodeRepository
 - **depends_on:** [T6]

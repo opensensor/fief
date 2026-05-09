@@ -12,6 +12,8 @@ from fief.models.user_field import UserField
 
 if TYPE_CHECKING:
     from fief.models.user_field_value import UserFieldValue
+    from fief.models.user_mfa_recovery_code import UserMfaRecoveryCode
+    from fief.models.user_totp_secret import UserTotpSecret
 
 
 class User(UUIDModel, CreatedUpdatedAt, Base):
@@ -25,6 +27,7 @@ class User(UUIDModel, CreatedUpdatedAt, Base):
     )
     hashed_password: Mapped[str] = mapped_column(String(length=255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     tenant_id: Mapped[UUID4] = mapped_column(
         GUID, ForeignKey(Tenant.id, ondelete="CASCADE"), nullable=False
@@ -33,6 +36,18 @@ class User(UUIDModel, CreatedUpdatedAt, Base):
 
     user_field_values: Mapped[list["UserFieldValue"]] = relationship(
         "UserFieldValue", back_populates="user", cascade="all, delete", lazy="selectin"
+    )
+
+    totp_secret: Mapped["UserTotpSecret | None"] = relationship(
+        "UserTotpSecret",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    mfa_recovery_codes: Mapped[list["UserMfaRecoveryCode"]] = relationship(
+        "UserMfaRecoveryCode",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

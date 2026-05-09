@@ -1,4 +1,6 @@
 import secrets
+import uuid
+from datetime import datetime
 from typing import cast
 
 from fastapi import Request
@@ -10,7 +12,14 @@ from sqlalchemy.sql.sqltypes import JSON, String
 
 from fief.models.base import TABLE_PREFIX, Base
 from fief.models.client import Client
-from fief.models.generics import GUID, CreatedUpdatedAt, ExpiresAt, UUIDModel
+from fief.models.generics import (
+    GUID,
+    CreatedUpdatedAt,
+    ExpiresAt,
+    TIMESTAMPAware,
+    UUIDModel,
+)
+from fief.models.user import User
 from fief.services.acr import ACR
 from fief.settings import settings
 
@@ -53,6 +62,17 @@ class LoginSession(UUIDModel, CreatedUpdatedAt, ExpiresAt, Base):
         GUID, ForeignKey(Client.id, ondelete="CASCADE"), nullable=False
     )
     client: Mapped[Client] = relationship("Client", lazy="joined")
+
+    mfa_pending_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID,
+        ForeignKey(User.id, ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+    )
+    mfa_attempts_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    mfa_locked_until: Mapped[datetime | None] = mapped_column(
+        TIMESTAMPAware(timezone=True), nullable=True, default=None
+    )
 
     def get_code_challenge_tuple(self) -> tuple[str, str] | None:
         if self.code_challenge is not None:
