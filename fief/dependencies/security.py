@@ -20,6 +20,8 @@ from fief.dependencies.repositories import get_repository
 from fief.logger import AuditLogger
 from fief.models import Tenant, User
 from fief.repositories import (
+    RefreshTokenRepository,
+    SessionTokenRepository,
     UserLockoutRepository,
     UserMfaRecoveryCodeRepository,
     UserRepository,
@@ -27,6 +29,7 @@ from fief.repositories import (
 )
 from fief.services.security.account_lockout import AccountLockoutService
 from fief.services.security.breached_passwords import BreachedPasswordChecker
+from fief.services.security.device_sessions import DeviceSessionsService
 from fief.services.security.rate_limiter import RateLimiter
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService
@@ -37,6 +40,7 @@ __all__ = [
     "enforce_tenant_mfa_required",
     "get_account_lockout_service",
     "get_breached_password_checker",
+    "get_device_sessions_service",
     "get_http_client",
     "get_rate_limiter",
     "get_recovery_code_service",
@@ -161,6 +165,32 @@ async def get_breached_password_checker(
     """
 
     return BreachedPasswordChecker(redis_client, http_client, audit_logger)
+
+
+# ---------------------------------------------------------------------------
+# UX-1 T10: combined device-sessions service
+# ---------------------------------------------------------------------------
+
+
+async def get_device_sessions_service(
+    session_repo: SessionTokenRepository = Depends(
+        get_repository(SessionTokenRepository)
+    ),
+    refresh_repo: RefreshTokenRepository = Depends(
+        get_repository(RefreshTokenRepository)
+    ),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> DeviceSessionsService:
+    """Per-request :class:`DeviceSessionsService` (UX-1 T10).
+
+    Wired into the dashboard's ``/security/sessions`` routes (T11) and
+    invoked from other services on auto-revoke triggers (password
+    change, MFA state change, recovery-code use). Stateless apart from
+    its repo + audit-logger handles, so a fresh instance per request
+    matches the rest of the security service factories above.
+    """
+
+    return DeviceSessionsService(session_repo, refresh_repo, audit_logger)
 
 
 # ---------------------------------------------------------------------------
