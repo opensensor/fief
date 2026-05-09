@@ -60,6 +60,7 @@ class AuthenticationFlow:
         acr: ACR,
         code_challenge_tuple: tuple[str, str] | None,
         client: Client,
+        branding_origin: str | None = None,
     ) -> ResponseType:
         login_session = LoginSession(
             response_type=response_type,
@@ -70,6 +71,7 @@ class AuthenticationFlow:
             nonce=nonce,
             acr=acr,
             client_id=client.id,
+            branding_origin=branding_origin,
         )
         if code_challenge_tuple is not None:
             code_challenge, code_challenge_method = code_challenge_tuple

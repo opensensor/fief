@@ -30,12 +30,13 @@ from fief.dependencies.auth import (
     get_needs_consent,
     get_nonce,
     get_optional_login_session,
+    get_verified_branding_origin,
     has_valid_session_token,
 )
 from fief.dependencies.authentication_flow import get_authentication_flow
 from fief.dependencies.client_ip import ClientIpInfo, get_client_ip_info
-from fief.dependencies.login_hint import LoginHint, get_login_hint
 from fief.dependencies.logger import get_audit_logger
+from fief.dependencies.login_hint import LoginHint, get_login_hint
 from fief.dependencies.oauth_provider import get_oauth_providers
 from fief.dependencies.repositories import get_repository
 from fief.dependencies.security import (
@@ -79,8 +80,8 @@ from fief.services.security.account_lockout import (
     AccountLockoutService,
 )
 from fief.services.security.rate_limiter import (
-    RateLimitExceeded,
     RateLimiter,
+    RateLimitExceeded,
     RateLimitWindow,
 )
 from fief.services.security.recovery_codes import RecoveryCodeService
@@ -98,6 +99,7 @@ def _hash_key(key: str) -> str:
     """
 
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
 
 # Maximum allowed wrong MFA attempts on a single LoginSession before it is
 # locked. Hard-coded here (rather than in settings) so the value is part of
@@ -131,6 +133,7 @@ async def authorize(
     login_hint: str | None = Query(None),
     requested_acr: ACR = Depends(get_authorize_acr),
     lang: str | None = Query(None),
+    verified_branding_origin: str | None = Depends(get_verified_branding_origin),
     authentication_flow: AuthenticationFlow = Depends(get_authentication_flow),
     has_valid_session_token: bool = Depends(has_valid_session_token),
 ):
@@ -161,6 +164,7 @@ async def authorize(
         acr=acr,
         code_challenge_tuple=code_challenge_tuple,
         client=client,
+        branding_origin=verified_branding_origin,
     )
 
     if login_hint is not None:
@@ -207,9 +211,7 @@ async def login(
     user_repository: UserRepository = Depends(get_repository(UserRepository)),
     ip_info: ClientIpInfo = Depends(get_client_ip_info),
     rate_limiter: RateLimiter = Depends(get_rate_limiter),
-    account_lockout: AccountLockoutService = Depends(
-        get_account_lockout_service
-    ),
+    account_lockout: AccountLockoutService = Depends(get_account_lockout_service),
     audit_logger: AuditLogger = Depends(get_audit_logger),
 ):
     # Track wall-clock for the SEC-1 latency floor on failure paths. We
@@ -371,9 +373,7 @@ async def login(
                 await account_lockout.record_failed(existing_user)
             audit_logger(
                 AuditLogMessage.USER_LOGIN_FAILED,
-                subject_user_id=existing_user.id
-                if existing_user is not None
-                else None,
+                subject_user_id=existing_user.id if existing_user is not None else None,
                 extra={
                     "email": email_normalized,
                     "client_ip": ip_info.raw,
@@ -403,9 +403,7 @@ async def login(
         # them back here until they enroll.
         if tenant.mfa_required and not user.mfa_enabled:
             try:
-                enroll_path = tenant.url_path_for(
-                    request, "auth.dashboard:mfa_index"
-                )
+                enroll_path = tenant.url_path_for(request, "auth.dashboard:mfa_index")
             except Exception:
                 # Defensive fallback if the dashboard router isn't mounted
                 # (e.g. in a stripped-down test app). The dashboard always
@@ -630,9 +628,7 @@ async def verify_email(
 #    ``USER_MFA_STATE_INCONSISTENT`` so the inconsistency is observable.
 
 
-def _redirect_to_login_generic(
-    request: Request, tenant: Tenant
-) -> RedirectResponse:
+def _redirect_to_login_generic(request: Request, tenant: Tenant) -> RedirectResponse:
     """Bounce back to /login with a generic flash. Used for every gating
     failure on /mfa/totp and /mfa/recover so we don't leak whether the
     underlying cause was a missing cookie, an unset ``mfa_pending_user_id``,
@@ -724,14 +720,10 @@ async def _record_failed_mfa_attempt(
     threshold is reached. Returns ``True`` when the session is now locked
     (caller should redirect to /login)."""
 
-    login_session.mfa_attempts_count = (
-        login_session.mfa_attempts_count or 0
-    ) + 1
+    login_session.mfa_attempts_count = (login_session.mfa_attempts_count or 0) + 1
     locked = False
     if login_session.mfa_attempts_count >= MFA_MAX_ATTEMPTS:
-        login_session.mfa_locked_until = (
-            datetime.now(UTC) + MFA_LOCKOUT_DURATION
-        )
+        login_session.mfa_locked_until = datetime.now(UTC) + MFA_LOCKOUT_DURATION
         locked = True
     await login_session_repository.update(login_session)
     return locked
@@ -750,9 +742,7 @@ async def mfa_totp(
     login_session_repository: LoginSessionRepository = Depends(
         get_repository(LoginSessionRepository)
     ),
-    user_repository: UserRepository = Depends(
-        get_repository(UserRepository)
-    ),
+    user_repository: UserRepository = Depends(get_repository(UserRepository)),
     ip_info: ClientIpInfo = Depends(get_client_ip_info),
     rate_limiter: RateLimiter = Depends(get_rate_limiter),
 ):
@@ -808,9 +798,7 @@ async def mfa_totp(
             await rate_limiter.check(
                 scope="mfa_totp_ip",
                 key=ip_info.rate_limit_key,
-                window=RateLimitWindow(
-                    settings.rate_limit_mfa_per_ip_per_min, 60
-                ),
+                window=RateLimitWindow(settings.rate_limit_mfa_per_ip_per_min, 60),
             )
         except RateLimitExceeded:
             audit_logger(
@@ -824,9 +812,7 @@ async def mfa_totp(
                 },
             )
             message = _("Invalid code. Please try again.")
-            return await form_helper.get_error_response(
-                message, "invalid_mfa_code"
-            )
+            return await form_helper.get_error_response(message, "invalid_mfa_code")
 
     form = await form_helper.get_form()
     result = await totp_service.verify(user, form.code.data)
@@ -867,15 +853,11 @@ async def mfa_totp(
         return _redirect_to_login_generic(request, tenant)
 
     # INVALID or REPLAY: increment the attempt counter, possibly lock.
-    locked = await _record_failed_mfa_attempt(
-        login_session, login_session_repository
-    )
+    locked = await _record_failed_mfa_attempt(login_session, login_session_repository)
     audit_logger(
         AuditLogMessage.USER_MFA_VERIFY_FAILED,
         subject_user_id=user.id,
-        extra={
-            "reason": "replay" if result == VerifyResult.REPLAY else "invalid"
-        },
+        extra={"reason": "replay" if result == VerifyResult.REPLAY else "invalid"},
     )
     if locked:
         return _redirect_to_login_generic(request, tenant)
@@ -885,17 +867,13 @@ async def mfa_totp(
     return await form_helper.get_error_response(message, "invalid_mfa_code")
 
 
-@router.api_route(
-    "/mfa/recover", methods=["GET", "POST"], name="auth:mfa_recover"
-)
+@router.api_route("/mfa/recover", methods=["GET", "POST"], name="auth:mfa_recover")
 async def mfa_recover(
     request: Request,
     session_token: SessionToken | None = Depends(get_session_token),
     authentication_flow: AuthenticationFlow = Depends(get_authentication_flow),
     totp_service: TotpService = Depends(get_totp_service),
-    recovery_code_service: RecoveryCodeService = Depends(
-        get_recovery_code_service
-    ),
+    recovery_code_service: RecoveryCodeService = Depends(get_recovery_code_service),
     audit_logger: AuditLogger = Depends(get_audit_logger),
     tenant: Tenant = Depends(get_current_tenant),
     context: BaseContext = Depends(get_base_context),
@@ -903,9 +881,7 @@ async def mfa_recover(
     login_session_repository: LoginSessionRepository = Depends(
         get_repository(LoginSessionRepository)
     ),
-    user_repository: UserRepository = Depends(
-        get_repository(UserRepository)
-    ),
+    user_repository: UserRepository = Depends(get_repository(UserRepository)),
     ip_info: ClientIpInfo = Depends(get_client_ip_info),
     rate_limiter: RateLimiter = Depends(get_rate_limiter),
 ):
@@ -1020,9 +996,7 @@ async def mfa_recover(
         # USER_MFA_RECOVERY_CODE_USED on success; no double-emit needed.
         return response
 
-    locked = await _record_failed_mfa_attempt(
-        login_session, login_session_repository
-    )
+    locked = await _record_failed_mfa_attempt(login_session, login_session_repository)
     audit_logger(
         AuditLogMessage.USER_MFA_VERIFY_FAILED,
         subject_user_id=user.id,
@@ -1033,9 +1007,7 @@ async def mfa_recover(
 
     message = _("Invalid recovery code. Please try again.")
     form.code.errors.append(message)
-    return await form_helper.get_error_response(
-        message, "invalid_recovery_code"
-    )
+    return await form_helper.get_error_response(message, "invalid_recovery_code")
 
 
 @router.api_route(
@@ -1120,9 +1092,7 @@ async def logout(
     session_token_repository: SessionTokenRepository = Depends(
         get_repository(SessionTokenRepository)
     ),
-    client_repository: ClientRepository = Depends(
-        get_repository(ClientRepository)
-    ),
+    client_repository: ClientRepository = Depends(get_repository(ClientRepository)),
     tenant: Tenant = Depends(get_current_tenant),
 ):
     if redirect_uri is None:

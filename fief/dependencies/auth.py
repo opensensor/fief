@@ -4,7 +4,9 @@ from typing import TypedDict
 from fastapi import Cookie, Depends, HTTPException, Query, Request, Response, status
 
 from fief.dependencies.authentication_flow import get_authentication_flow
-from fief.dependencies.brand import get_current_brand
+from fief.dependencies.brand import (
+    get_current_brand_for_login_session,
+)
 from fief.dependencies.branding import get_show_branding
 from fief.dependencies.repositories import get_repository
 from fief.dependencies.session_token import get_session_token
@@ -16,11 +18,23 @@ from fief.exceptions import (
     LoginException,
 )
 from fief.locale import gettext_lazy as _
+from fief.logger import logger
 from fief.models import Brand, Client, LoginSession, SessionToken, Tenant, Theme
-from fief.repositories import ClientRepository, GrantRepository, LoginSessionRepository
+from fief.repositories import (
+    BrandRepository,
+    ClientRepository,
+    GrantRepository,
+    LoginSessionRepository,
+)
 from fief.schemas.auth import AuthorizeError, AuthorizeRedirectError, LoginError
 from fief.services.acr import ACR
 from fief.services.authentication_flow import AuthenticationFlow
+from fief.services.branding import (
+    BrandingOriginVerifier,
+    VerificationResult,
+    VerifiedBrandingOrigin,
+)
+from fief.services.branding.origin_verifier import hash_origin_for_log
 from fief.services.response_type import (
     ALLOWED_RESPONSE_TYPES,
     DEFAULT_RESPONSE_MODE,
@@ -249,6 +263,64 @@ async def get_authorize_acr(acr_values: str | None = Query(None)) -> ACR:
     return ACR.LEVEL_ZERO
 
 
+async def get_verified_branding_origin(
+    branding_origin: str | None = Query(None),
+    client: Client = Depends(get_authorize_client),
+) -> str | None:
+    """Verify a signed ``branding_origin`` query param on ``GET /authorize``.
+
+    Returns the trusted storefront origin string when the signed token is
+    well-formed, the HMAC validates against the per-client signing key,
+    the expiry is in the future (within :data:`TOKEN_MAX_AGE_SECONDS`) and
+    the host is in the client's redirect-URI allowlist. Returns ``None``
+    on any failure path -- the caller falls back silently to the
+    host-based default brand. WARN-logs failures with a hashed origin (so
+    abuse correlates without leaking the storefront identity) and the
+    structured ``failure_reason`` taken from
+    :class:`VerificationResult`.
+
+    See :mod:`fief.services.branding.origin_verifier` for protocol detail
+    and the audit doc (``docs/saleor-fief-branding-audit.md`` § 4) for
+    the broader design rationale (T46).
+    """
+
+    verifier = BrandingOriginVerifier(client)
+    result: VerifiedBrandingOrigin = verifier.verify(branding_origin)
+
+    if result.ok:
+        return result.origin
+
+    # Silent fallback. Log every failure path (except the trivial
+    # NO_TOKEN / NO_SIGNING_KEY backward-compat paths, which would just
+    # be noise). For SIGNATURE_MISMATCH / EXPIRED / ORIGIN_NOT_ALLOWED /
+    # MALFORMED, surface a WARN with the hashed origin (when the token
+    # was at least parseable) so ops can correlate abuse without seeing
+    # the raw storefront identity.
+    if result.status in (
+        VerificationResult.SIGNATURE_MISMATCH,
+        VerificationResult.EXPIRED,
+        VerificationResult.ORIGIN_NOT_ALLOWED,
+        VerificationResult.MALFORMED,
+    ):
+        # Best-effort hash of the origin segment for log correlation.
+        # On MALFORMED we may not have a parseable origin; fall back to
+        # the empty hash sentinel so the log shape stays consistent.
+        origin_hash = ""
+        if branding_origin:
+            origin_segment = branding_origin.rsplit(".", 3)[0]
+            if origin_segment:
+                origin_hash = hash_origin_for_log(origin_segment)
+
+        logger.warning(
+            "branding_origin verification failed",
+            client_id=client.client_id,
+            failure_reason=result.status.value,
+            origin_hash=origin_hash,
+        )
+
+    return None
+
+
 async def has_valid_session_token(
     max_age: int | None = Query(None),
     session_token: SessionToken | None = Depends(get_session_token),
@@ -366,9 +438,22 @@ async def get_base_context(
     request: Request,
     tenant: Tenant = Depends(get_current_tenant),
     theme: Theme = Depends(get_current_theme),
-    brand: Brand | None = Depends(get_current_brand),
     show_branding: bool = Depends(get_show_branding),
+    login_session: LoginSession | None = Depends(get_optional_login_session),
+    brand_repository: BrandRepository = Depends(BrandRepository),
 ) -> BaseContext:
+    """Render-context for in-flight authentication pages.
+
+    Brand selection prefers the verified ``branding_origin`` persisted on
+    the active :class:`LoginSession` (set on ``/authorize`` from the
+    signed query param, T46). Falls back to the host-based resolver when
+    no login session is in flight or no signed origin was verified --
+    keeps native Fief multi-brand whitelabel intact.
+    """
+
+    brand: Brand | None = await get_current_brand_for_login_session(
+        request, login_session, brand_repository
+    )
     return {
         "request": request,
         "tenant": tenant,

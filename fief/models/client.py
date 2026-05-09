@@ -85,6 +85,17 @@ class Client(UUIDModel, CreatedUpdatedAt, Base):
     )
     tenant: Mapped[Tenant] = relationship("Tenant", lazy="joined")
 
+    # Per-OIDC-client HMAC-SHA256 secret used to verify signed
+    # ``branding_origin`` query params on ``GET /authorize`` (T46). Nullable;
+    # NULL means "branding_origin disabled for this client" and any signed
+    # token is silently ignored (existing first-party / dashboard / SDK
+    # clients keep working unchanged). Populated by the Saleor app at
+    # OIDC-client provisioning time (T17). Sized to leave headroom for
+    # future key formats; 32-byte hex is 64 chars.
+    branding_signing_key: Mapped[str | None] = mapped_column(
+        String(length=128), nullable=True, default=None
+    )
+
     def __repr__(self) -> str:
         return f"Client(id={self.id}, name={self.name}, client_id={self.client_id})"
 

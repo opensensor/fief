@@ -63,6 +63,19 @@ class LoginSession(UUIDModel, CreatedUpdatedAt, ExpiresAt, Base):
     )
     client: Mapped[Client] = relationship("Client", lazy="joined")
 
+    # Verified storefront origin (e.g. ``https://shop-a.example.com``) carried
+    # over from the signed ``branding_origin`` query param on ``GET /authorize``
+    # (T46). Persisted here so the verified value survives the
+    # ``/login`` -> ``/consent`` (and any MFA challenge) redirect chain — the
+    # 5-minute expiry on the signed token only gates the initial ``/authorize``
+    # hit, after which the brand resolver re-reads the value off the login
+    # session for the rest of the flow. NULL means no signed branding_origin
+    # was verified (or the client has no signing key set), in which case the
+    # brand resolver falls back to the host-based lookup.
+    branding_origin: Mapped[str | None] = mapped_column(
+        String(length=2048), nullable=True, default=None
+    )
+
     mfa_pending_user_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID,
         ForeignKey(User.id, ondelete="SET NULL"),
