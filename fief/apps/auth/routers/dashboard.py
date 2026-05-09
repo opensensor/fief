@@ -338,8 +338,10 @@ def _mfa_label(brand: Brand | None, tenant: Tenant) -> str:
 async def mfa_index(
     request: Request,
     user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
     context: BaseContext = Depends(get_base_context),
 ):
+    passkey_count = len(await webauthn_service.list_for_user(user))
     return templates.TemplateResponse(
         request,
         "auth/dashboard/security/index.html",
@@ -347,6 +349,7 @@ async def mfa_index(
             **context,
             "current_route": "auth.dashboard:mfa_index",
             "mfa_enabled": user.mfa_enabled,
+            "passkey_count": passkey_count,
             # Render an empty disable form on initial GET so the password +
             # code fields are visible alongside the danger-zone button. The
             # POST handler re-renders with `form` populated on validation
