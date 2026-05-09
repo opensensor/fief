@@ -225,9 +225,14 @@ Wave 9 (Rollout)
   - `verify(user, code) -> VerifyResult`. Same verify with `valid_window=1`; refuses if `last_used_step >= proposed_step`. Returns enum {SUCCESS, INVALID, REPLAY, INCONSISTENT_STATE}. **Decryption hardening:** wraps the Fernet `decrypt` call in try/except `MfaSecretDecryptionError`; on failure, returns `INCONSISTENT_STATE` AND emits a structured log entry with `user_id` AND fires audit log `USER_MFA_STATE_INCONSISTENT` (added in T3). Same for the orphan case where `users.mfa_enabled=true` but no confirmed row exists.
   - `disable(user)`. Deletes row + recovery codes; flips `users.mfa_enabled=false`.
 - **validation:** T23 covers all four methods including drift, replay, invalid, INCONSISTENT_STATE on tampered ciphertext, and double-begin-enrollment replacing the unconfirmed row.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: Implemented `TotpService` with `EnrollmentBundle` dataclass, `VerifyResult` StrEnum, and `MfaAlreadyEnrolledError`. `begin_enrollment` replaces unconfirmed rows and refuses to clobber confirmed ones; QR rendered via segno into a `data:image/png;base64,...` URI. `verify` enforces a per-user `last_used_step` replay guard and folds both ciphertext-decryption failures and orphaned `mfa_enabled` flags into `INCONSISTENT_STATE` with a structured log + `USER_MFA_STATE_INCONSISTENT` audit entry (distinguishing `extra={"reason": ...}`). `disable` is idempotent.
+  - Test suite (`tests/services/test_totp_service.py`, 13 cases): drives the full enroll → confirm → verify → disable lifecycle against in-memory repo fakes; covers replay rejection, invalid code, both INCONSISTENT_STATE branches (decrypt failure + missing-row-with-flag-set), and the unconfirmed-row replacement / confirmed-row-refusal upsert semantics. Encrypt/decrypt are stubbed to a reversible codec so tests don't need Fernet settings.
+  - `pytest tests/services/test_totp_service.py --no-cov -q` → 13 passed.
 - **files edited/created:**
+  - `fief/services/security/totp.py` (new)
+  - `tests/services/test_totp_service.py` (new)
 
 ### T12: RecoveryCodeService
 - **depends_on:** [T9]
@@ -237,9 +242,12 @@ Wave 9 (Rollout)
   - `generate_for(user) -> list[str]`. Replaces any existing rows; stores hashes via `passlib.hash.bcrypt.hash()` directly (do **not** route through the existing `password_helper`; recovery-code hashing must be independent of any future password-hash migration the project does).
   - `consume(user, code) -> bool`. Lowercases & strips dashes; iterates user's unused codes; uses `passlib.hash.bcrypt.verify()` (constant-time) so timing doesn't leak which codes are still valid; marks the matched row `used_at=now()`.
 - **validation:** T23 covers consume-then-replay (rejected), case-insensitive matching, and exhaustion.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: Implemented `RecoveryCodeService` per spec — base32 RFC 4648 alphabet (no `0/1/8/9`), `secrets.choice` only, `passlib.hash.bcrypt` for hash + verify (decoupled from project `password_helper`). `generate_for` deletes prior rows before inserting 10 fresh ones and audits `USER_MFA_RECOVERY_CODES_REGENERATED`. `consume` normalizes (strip dashes, uppercase), shape-checks before any bcrypt call, walks unused rows without short-circuiting on match, and audits `USER_MFA_RECOVERY_CODE_USED`. TDD via `tests/services/test_recovery_code_service.py` (8 unit tests, all green): format, regen-replaces-old, formatted/unformatted accept, case-insensitive, malformed-rejection-without-bcrypt, exhaustion. Note: `passlib` was not yet present in the project venv (project uses `pwdlib`); installed `passlib==1.7.4` to satisfy the plan's "use passlib directly" requirement — adding it to `pyproject.toml` is left to the integration task that wires the service in.
 - **files edited/created:**
+  - `fief/services/security/recovery_codes.py` (new)
+  - `tests/services/test_recovery_code_service.py` (new)
 
 ### T13: Dashboard setup routes
 - **depends_on:** [T10, T11, T12]
