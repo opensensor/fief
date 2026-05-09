@@ -1,0 +1,9 @@
+{% extends "BASE" %}
+
+{% block preheader %}Two-factor authentication was enabled on your {{ brand.name if brand else tenant.name }} account.{% endblock %}
+
+{% block main %}
+  <h1>Two-factor authentication enabled</h1>
+  <p>Two-factor authentication was just enabled on your {{ brand.name if brand else tenant.name }} account. From now on you'll need a code from your authenticator app to sign in.</p>
+  <p>If this wasn't you, contact support right away — your account may be compromised.</p>
+{% endblock %}

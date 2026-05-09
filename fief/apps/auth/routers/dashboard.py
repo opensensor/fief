@@ -18,6 +18,7 @@ from fief.dependencies.security import (
 from fief.dependencies.session_token import (
     get_verified_email_user_from_session_token_or_verify,
 )
+from fief.dependencies.tasks import get_send_task
 from fief.dependencies.tenant import get_current_tenant
 from fief.dependencies.theme import get_current_theme
 from fief.dependencies.users import get_user_manager, get_user_update_model
@@ -36,6 +37,7 @@ from fief.services.user_manager import (
     UserManager,
 )
 from fief.settings import settings
+from fief.tasks import SendTask
 from fief.templates import templates
 
 router = APIRouter()
@@ -354,6 +356,7 @@ async def mfa_totp_confirm(
     recovery_code_service: RecoveryCodeService = Depends(
         get_recovery_code_service
     ),
+    send_task: SendTask = Depends(get_send_task),
     context: BaseContext = Depends(get_base_context),
 ):
     form_helper = FormHelper(
@@ -393,7 +396,12 @@ async def mfa_totp_confirm(
         return await form_helper.get_response()
 
     form = await form_helper.get_form()
-    confirmed = await totp_service.confirm_enrollment(user, form.code.data)
+    confirmed = await totp_service.confirm_enrollment(
+        user,
+        form.code.data,
+        send_task=send_task,
+        brand_id=str(brand.id) if brand is not None else None,
+    )
 
     if not confirmed:
         # Bad code: re-render the setup page with a fresh QR (the unconfirmed
@@ -449,6 +457,8 @@ async def mfa_totp_disable(
         get_recovery_code_service
     ),
     tenant: Tenant = Depends(get_current_tenant),
+    brand: Brand | None = Depends(get_current_brand),
+    send_task: SendTask = Depends(get_send_task),
     context: BaseContext = Depends(get_base_context),
 ):
     form_helper = FormHelper(
@@ -502,7 +512,11 @@ async def mfa_totp_disable(
             message, "invalid_mfa_code"
         )
 
-    await totp_service.disable(user)
+    await totp_service.disable(
+        user,
+        send_task=send_task,
+        brand_id=str(brand.id) if brand is not None else None,
+    )
 
     # Re-fetch context flag so the success render reflects the new state.
     form_helper.context["mfa_enabled"] = False

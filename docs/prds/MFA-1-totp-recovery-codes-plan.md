@@ -401,9 +401,24 @@ Wave 9 (Rollout)
 - **location:** `fief/services/email_template/types.py`, `fief/services/email_template/templates/mfa_enabled.html` (new), `fief/services/email_template/templates/mfa_disabled.html` (new), `fief/tasks/mfa.py` (new)
 - **description:** Add `EmailTemplateType.MFA_ENABLED` and `MFA_DISABLED`. Two short brand-aware emails ("Two-factor authentication was turned on/off for your <brand> account. Wasn't you? <reset link>"). Triggered by Dramatiq actor `on_mfa_state_changed(user_id, state, brand_id)` enqueued from T13 routes. Same brand-id flow already proven for welcome/verify/forgot — `brand_id` is sourced from the existing dashboard request context (already populated by the `get_current_brand` dependency wired in our recent modernization PR).
 - **validation:** Manual: enable/disable on a test user; both emails arrive with correct brand sender + masthead.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09 — Added `EmailTemplateType.MFA_ENABLED` and `MFA_DISABLED` plus brand-aware HTML templates that extend `BASE` (use the `{{ brand.name if brand else tenant.name }}` fallback already shared with welcome/verify/forgot). Seeded subjects in `EmailTemplateInitializer` and added a follow-up alembic migration (`a1b2c3d4e5f6`, parents `331683efd325`) that idempotently inserts the two rows on existing databases via Python-side UUID generation (cross-dialect safe).
+  - 2026-05-09 — Added the dramatiq actor `on_mfa_state_changed(user_id, state, brand_id)` in `fief/tasks/mfa.py` and registered it in `fief/tasks/__init__.py` so the worker discovers it on import. The actor reuses the existing `EmailContext` schema (no new context subclass) since these emails carry no extra payload beyond user/tenant/brand. Sender resolution goes through `_resolve_email_sender(tenant, brand)` so per-brand From addresses (`f8ebe56`, `8d08b93`) flow through automatically.
+  - 2026-05-09 — `TotpService.confirm_enrollment` and `TotpService.disable` now accept optional `send_task` + `brand_id` kwargs. `confirm_enrollment` enqueues `state="enabled"`; `disable` enqueues `state="disabled"` but only when `user.mfa_enabled` was actually `True` going in (avoids spurious mails on idempotent self-heal disables) and exposes a `notify=False` opt-out for the inconsistent-state self-heal path. Both kwargs default to `None`/`True`, so the existing recovery-flow `disable(user)` call in `auth.py` continues to work unchanged (no notification, which matches the spec's "fall back to None for that call site" instruction).
+  - 2026-05-09 — Wired the dashboard router (`mfa_totp_confirm`, `mfa_totp_disable`) to inject `send_task=Depends(get_send_task)` and pass `brand_id` derived from `get_current_brand`. Admin force-reset endpoint (T21) was intentionally not modified; admin actions don't send notifications and that's the desired behaviour per the boundary section.
+  - 2026-05-09 — Test coverage in `tests/services/test_totp_service_email_notifications.py` (8 tests, all green) covers: enabled-with-brand, enabled-with-None-brand, no enqueue on invalid code, no enqueue without `send_task`, disabled-with-brand, no enqueue when user wasn't enabled (idempotent self-heal), `notify=False` opt-out, and no-`send_task` tolerance. Existing `test_totp_service.py` (13 tests), `test_dashboard_mfa.py` (8), and `test_mfa_challenge.py` (11) all still green — confirms the kwarg-default pattern is non-breaking.
 - **files edited/created:**
+  - `fief/services/email_template/types.py` (added `MFA_ENABLED`, `MFA_DISABLED` + display names)
+  - `fief/services/email_template/initializer.py` (seed loop entries for the two new types)
+  - `fief/services/email_template/templates/mfa_enabled.html` (new)
+  - `fief/services/email_template/templates/mfa_disabled.html` (new)
+  - `fief/alembic/versions/2026-05-09b_seed_mfa_email_templates.py` (new, revision `a1b2c3d4e5f6`)
+  - `fief/tasks/mfa.py` (new actor `on_mfa_state_changed`)
+  - `fief/tasks/__init__.py` (register the new actor)
+  - `fief/services/security/totp.py` (enqueue from `confirm_enrollment` + `disable`)
+  - `fief/apps/auth/routers/dashboard.py` (inject `send_task`, pass `brand_id`)
+  - `tests/services/test_totp_service_email_notifications.py` (new)
 
 ### T23: Unit tests — TotpService + RecoveryCodeService
 - **depends_on:** [T11, T12]

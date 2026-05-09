@@ -1,0 +1,9 @@
+{% extends "BASE" %}
+
+{% block preheader %}Two-factor authentication was disabled on your {{ brand.name if brand else tenant.name }} account.{% endblock %}
+
+{% block main %}
+  <h1>Two-factor authentication disabled</h1>
+  <p>Two-factor authentication was just disabled on your {{ brand.name if brand else tenant.name }} account. You'll only need your password to sign in until you re-enable it.</p>
+  <p>If this wasn't you, contact support right away — your account may be compromised.</p>
+{% endblock %}

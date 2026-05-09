@@ -43,6 +43,28 @@ class EmailTemplateInitializer:
             )
             await self.repository.create(forgot_password)
 
+        if await self.repository.get_by_type(EmailTemplateType.MFA_ENABLED) is None:
+            mfa_enabled = EmailTemplate(
+                type=EmailTemplateType.MFA_ENABLED,
+                subject=(
+                    "Two-factor authentication enabled on your "
+                    "{{ brand.name if brand else tenant.name }} account"
+                ),
+                content=self._load_template("mfa_enabled.html"),
+            )
+            await self.repository.create(mfa_enabled)
+
+        if await self.repository.get_by_type(EmailTemplateType.MFA_DISABLED) is None:
+            mfa_disabled = EmailTemplate(
+                type=EmailTemplateType.MFA_DISABLED,
+                subject=(
+                    "Two-factor authentication disabled on your "
+                    "{{ brand.name if brand else tenant.name }} account"
+                ),
+                content=self._load_template("mfa_disabled.html"),
+            )
+            await self.repository.create(mfa_disabled)
+
     def _load_template(self, name: str) -> str:
         with open(self.templates_dir / name) as file:
             return file.read()

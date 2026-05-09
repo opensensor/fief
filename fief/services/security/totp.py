@@ -44,6 +44,8 @@ from fief.services.security.encryption import (
     decrypt,
     encrypt,
 )
+from fief.tasks.base import SendTask
+from fief.tasks.mfa import on_mfa_state_changed
 
 __all__ = [
     "EnrollmentBundle",
@@ -169,12 +171,25 @@ class TotpService:
             qr_png_data_uri=qr_png_data_uri,
         )
 
-    async def confirm_enrollment(self, user: User, code: str) -> bool:
+    async def confirm_enrollment(
+        self,
+        user: User,
+        code: str,
+        *,
+        send_task: SendTask | None = None,
+        brand_id: str | None = None,
+    ) -> bool:
         """Validate the first OTP and flip the user's MFA on.
 
         Returns ``False`` (without deleting the unconfirmed row) on a bad
         code so the caller can re-prompt without restarting the QR
         ceremony.
+
+        If ``send_task`` is provided, a brand-aware "MFA enabled"
+        notification email is enqueued on success. ``brand_id`` is the
+        UUID string of the brand the request originated from (None for
+        admin / non-branded contexts; the email then renders against the
+        tenant fallback).
         """
 
         row = await self.totp_repo.get_by_user_id(user.id)
@@ -207,6 +222,14 @@ class TotpService:
         self.audit_logger(
             AuditLogMessage.USER_MFA_ENROLLED, subject_user_id=user.id
         )
+
+        if send_task is not None:
+            send_task(
+                on_mfa_state_changed,
+                str(user.id),
+                "enabled",
+                brand_id,
+            )
         return True
 
     async def verify(self, user: User, code: str) -> VerifyResult:
@@ -263,12 +286,31 @@ class TotpService:
         await self.totp_repo.update(row)
         return VerifyResult.SUCCESS
 
-    async def disable(self, user: User) -> None:
+    async def disable(
+        self,
+        user: User,
+        *,
+        send_task: SendTask | None = None,
+        brand_id: str | None = None,
+        notify: bool = True,
+    ) -> None:
         """Tear down all MFA state for ``user`` and audit the event.
 
         This is best-effort idempotent — it's safe to call when no row
         exists (e.g. self-heal from an orphaned ``users.mfa_enabled=true``).
+
+        If ``send_task`` is provided and ``notify`` is true, a brand-aware
+        "MFA disabled" notification email is enqueued. Self-heal /
+        inconsistent-state callers can pass ``notify=False`` to skip the
+        email when the tear-down is reconciling state rather than
+        responding to a user-initiated disable.
         """
+
+        # Capture whether the user actually had MFA on before we mutate
+        # state, so the notification path can short-circuit on idempotent
+        # no-op calls (e.g. orphan self-heal where mfa_enabled is already
+        # false).
+        was_enabled = bool(user.mfa_enabled)
 
         await self.totp_repo.delete_by_user_id(user.id)
         await self.recovery_repo.delete_by_user_id(user.id)
@@ -279,3 +321,11 @@ class TotpService:
         self.audit_logger(
             AuditLogMessage.USER_MFA_DISABLED, subject_user_id=user.id
         )
+
+        if notify and was_enabled and send_task is not None:
+            send_task(
+                on_mfa_state_changed,
+                str(user.id),
+                "disabled",
+                brand_id,
+            )
