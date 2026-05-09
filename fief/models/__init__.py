@@ -27,6 +27,7 @@ from fief.models.theme import Theme
 from fief.models.user import User
 from fief.models.user_field import UserField, UserFieldConfiguration, UserFieldType
 from fief.models.user_field_value import UserFieldValue
+from fief.models.user_lockout import UserLockout
 from fief.models.user_mfa_recovery_code import UserMfaRecoveryCode
 from fief.models.user_permission import UserPermission
 from fief.models.user_role import UserRole
@@ -68,6 +69,7 @@ __all__ = [
     "UserFieldConfiguration",
     "UserFieldType",
     "UserFieldValue",
+    "UserLockout",
     "UserMfaRecoveryCode",
     "UserPermission",
     "UserRole",

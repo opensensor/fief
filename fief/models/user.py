@@ -12,6 +12,7 @@ from fief.models.user_field import UserField
 
 if TYPE_CHECKING:
     from fief.models.user_field_value import UserFieldValue
+    from fief.models.user_lockout import UserLockout
     from fief.models.user_mfa_recovery_code import UserMfaRecoveryCode
     from fief.models.user_totp_secret import UserTotpSecret
 
@@ -47,6 +48,12 @@ class User(UUIDModel, CreatedUpdatedAt, Base):
     mfa_recovery_codes: Mapped[list["UserMfaRecoveryCode"]] = relationship(
         "UserMfaRecoveryCode",
         back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    lockout: Mapped["UserLockout | None"] = relationship(
+        "UserLockout",
+        back_populates="user",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 
