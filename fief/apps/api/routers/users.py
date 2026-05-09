@@ -53,6 +53,7 @@ from fief.services.acr import ACR
 from fief.services.security.account_lockout import AccountLockoutService
 from fief.services.security.totp import TotpService
 from fief.services.user_manager import (
+    BreachedPasswordError,
     InvalidPasswordError,
     UserAlreadyExistsError,
     UserManager,
@@ -123,12 +124,21 @@ async def create_user(
             detail=APIErrorCode.USER_CREATE_ALREADY_EXISTS,
         ) from e
     except InvalidPasswordError as e:
-        # Build a JSON response manually to fine-tune the response structure
+        # Build a JSON response manually to fine-tune the response structure.
+        # SEC-2 T8: ``BreachedPasswordError`` is caught by this same
+        # ``except`` (it's a subclass) so the existing ``detail`` shape
+        # is preserved for backward compatibility. We additionally surface
+        # a top-level ``code: "password_breached"`` so admin clients
+        # (CLI, future SCIM provisioning) can branch on the HIBP-specific
+        # case without re-checking the password themselves.
+        body: dict = {
+            "detail": APIErrorCode.USER_CREATE_INVALID_PASSWORD,
+            "reason": [str(message) for message in e.messages],
+        }
+        if isinstance(e, BreachedPasswordError):
+            body["code"] = "password_breached"
         return JSONResponse(
-            content={
-                "detail": APIErrorCode.USER_CREATE_INVALID_PASSWORD,
-                "reason": [str(message) for message in e.messages],
-            },
+            content=body,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -156,12 +166,17 @@ async def update_user(
             detail=APIErrorCode.USER_UPDATE_EMAIL_ALREADY_EXISTS,
         ) from e
     except InvalidPasswordError as e:
-        # Build a JSON response manually to fine-tune the response structure
+        # Build a JSON response manually to fine-tune the response structure.
+        # SEC-2 T8: see ``create_user`` above for the ``code`` discriminator
+        # rationale — same pattern repeated here for the PATCH path.
+        body: dict = {
+            "detail": APIErrorCode.USER_UPDATE_INVALID_PASSWORD,
+            "reason": [str(message) for message in e.messages],
+        }
+        if isinstance(e, BreachedPasswordError):
+            body["code"] = "password_breached"
         return JSONResponse(
-            content={
-                "detail": APIErrorCode.USER_UPDATE_INVALID_PASSWORD,
-                "reason": [str(message) for message in e.messages],
-            },
+            content=body,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 

@@ -38,7 +38,11 @@ from fief.services.security.rate_limiter import (
     RateLimitExceeded,
     RateLimitWindow,
 )
-from fief.services.user_manager import UserAlreadyExistsError
+from fief.services.user_manager import (
+    BreachedPasswordError,
+    InvalidPasswordError,
+    UserAlreadyExistsError,
+)
 from fief.settings import settings
 
 
@@ -145,6 +149,21 @@ async def register(
             user = await registration_flow.create_user(
                 form.data, tenant, registration_session, request=request
             )
+        except InvalidPasswordError as exc:
+            # SEC-2 T8: ``BreachedPasswordError`` is a subclass of
+            # ``InvalidPasswordError``; catch the base so both regular
+            # validation failures (e.g. zxcvbn too-weak) and HIBP-flagged
+            # passwords surface a graceful 400 instead of a 500. The
+            # error code is discriminated so clients/UX can distinguish
+            # "your password was found in a breach" from generic weakness.
+            message = "; ".join(str(m) for m in exc.messages)
+            form.password.errors.append(message)
+            error_code = (
+                "password_breached"
+                if isinstance(exc, BreachedPasswordError)
+                else "invalid_password"
+            )
+            return await form_helper.get_error_response(message, error_code)
         except UserAlreadyExistsError:
             # SEC-1 T13: enumeration hardening. In production the silent
             # branch returns the same redirect a fresh registration would

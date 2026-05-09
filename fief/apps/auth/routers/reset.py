@@ -24,6 +24,8 @@ from fief.services.security.rate_limiter import (
     RateLimitWindow,
 )
 from fief.services.user_manager import (
+    BreachedPasswordError,
+    InvalidPasswordError,
     InvalidResetPasswordTokenError,
     UserDoesNotExistError,
     UserInactiveError,
@@ -184,6 +186,20 @@ async def reset_password(
                 "invalid_token",
                 fatal=True,
             )
+        except InvalidPasswordError as exc:
+            # SEC-2 T8: HIBP / validate_password rejection. Without this
+            # branch the route 500s; with it the user sees a 400 form
+            # render with the new password field flagged. The error code
+            # discriminates ``password_breached`` (subclass) from generic
+            # ``invalid_password`` so UX can guide the user appropriately.
+            message = "; ".join(str(m) for m in exc.messages)
+            form.password.errors.append(message)
+            error_code = (
+                "password_breached"
+                if isinstance(exc, BreachedPasswordError)
+                else "invalid_password"
+            )
+            return await form_helper.get_error_response(message, error_code)
         else:
             if login_session is not None:
                 redirection = tenant.url_path_for(request, "auth:login")

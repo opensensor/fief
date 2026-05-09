@@ -304,9 +304,18 @@ Wave 6 (Rollout)
 
   **(d) `fief/apps/api/routers/users.py`** — already catches `InvalidPasswordError` at lines 125 (POST `/users`) and 156 (PATCH `/users/{id:uuid}`). **Verify only** that the existing 400/422 response carries the message back; no edit unless a discrimination on `BreachedPasswordError` is desired (recommend: yes — surface `error_code: "password_breached"` so admin clients can differentiate).
 - **validation:** Manual smoke: try registering with `Password1` (definitely in HIBP corpus); form shows the breached-password error + other input fields are retained. T10 covers automated.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - Added `BreachedPasswordError` + `InvalidPasswordError` imports to `register.py`, `reset.py`, `dashboard.py`. Each route now catches `InvalidPasswordError` (which catches the `BreachedPasswordError` subclass via inheritance), surfaces the message to the appropriate password-field errors list, and discriminates the `X-Fief-Error` header between `password_breached` and `invalid_password`.
+  - Admin API `users.py` (POST `/users`, PATCH `/users/{id}`) already caught `InvalidPasswordError`; shipped the optional discrimination — when the exception is a `BreachedPasswordError` the JSON response now carries an additional top-level `code: "password_breached"` alongside the unchanged `detail` + `reason` fields. Existing API consumers branching on `detail` are unaffected.
+  - TDD: 7 tests in `tests/apps/auth/routers/test_password_breached_handlers.py` written RED first (5 failures: register/reset/dashboard 500'd on the missing except; admin API didn't carry `code`); GREEN after the four route edits. Two regression tests verify weak-but-not-breached passwords still surface `invalid_password` (HTML route) / no `code` field (admin API).
+  - Pre-existing 4 unrelated test failures on `main` (around `send_task_mock.assert_called_with` extra-arg drift) confirmed by `git stash` baseline run — not caused by T8.
 - **files edited/created:**
+  - `fief/apps/auth/routers/register.py` (extend `user_manager` import; add `except InvalidPasswordError` branch in the registration POST path)
+  - `fief/apps/auth/routers/reset.py` (extend `user_manager` import; add `except InvalidPasswordError` branch around `user_manager.reset_password(...)`)
+  - `fief/apps/auth/routers/dashboard.py` (extend `user_manager` import; wrap `user_manager.set_user_attributes(...)` in `update_password` with `try/except InvalidPasswordError`)
+  - `fief/apps/api/routers/users.py` (extend `user_manager` import; add `code: "password_breached"` discriminator on both create + update `InvalidPasswordError` branches)
+  - `tests/apps/auth/routers/test_password_breached_handlers.py` (new — 7 tests covering all four handlers with breached/non-breached cases)
 
 ### T9: Unit tests — BreachedPasswordChecker
 - **depends_on:** [T6]

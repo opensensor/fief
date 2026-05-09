@@ -32,7 +32,9 @@ from fief.services.security.totp import (
     VerifyResult,
 )
 from fief.services.user_manager import (
+    BreachedPasswordError,
     InvalidEmailVerificationCodeError,
+    InvalidPasswordError,
     UserAlreadyExistsError,
     UserManager,
 )
@@ -245,9 +247,26 @@ async def update_password(
             form.new_password.errors.append(message)
             return await form_helper.get_error_response(message, "passwords_dont_match")
 
-        user = await user_manager.set_user_attributes(
-            user, password=new_password, tenant=context["tenant"]
-        )
+        try:
+            user = await user_manager.set_user_attributes(
+                user, password=new_password, tenant=context["tenant"]
+            )
+        except InvalidPasswordError as exc:
+            # SEC-2 T8: HIBP rejection (or any other validate_password
+            # failure not already filtered out by the wtforms-level
+            # ``PasswordValidator``) raises through ``set_user_attributes``.
+            # Without this branch the route 500s. The error code branches
+            # on ``BreachedPasswordError`` so admin UX can show
+            # HIBP-specific copy ("this password appeared in a known
+            # breach — pick something else").
+            message = "; ".join(str(m) for m in exc.messages)
+            form.new_password.errors.append(message)
+            error_code = (
+                "password_breached"
+                if isinstance(exc, BreachedPasswordError)
+                else "invalid_password"
+            )
+            return await form_helper.get_error_response(message, error_code)
         await user_manager.user_repository.update(user)
 
         form_helper.context["success"] = _(
