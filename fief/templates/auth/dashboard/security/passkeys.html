@@ -183,11 +183,13 @@
 </div>
 
 {# WebAuthn registration glue. The bundle exposes `window.fiefWebauthn` (rollup
-   IIFE in T8). On click: call `registerPasskey(beginUrl, finishUrl)`, then
-   reload on success or flash an error message on failure. #}
-<script type="module">
-  import "{{ url_for('static', path='/webauthn.bundle.js') }}";
-
+   IIFE in T8). Load it via classic <script src> so the global is populated,
+   then use it from a plain <script> below. (An ES-module dynamic import
+   doesn't reliably surface the IIFE side effects.) On click: call
+   `registerPasskey(beginUrl, finishUrl)`, then reload on success or flash an
+   error message on failure. #}
+<script src="{{ url_for('auth:static', path='/webauthn.bundle.js') }}"></script>
+<script>
   const beginUrl  = "{{ tenant.url_path_for(request, 'auth.dashboard:passkeys_register_begin') }}";
   const finishUrl = "{{ tenant.url_path_for(request, 'auth.dashboard:passkeys_register_finish') }}";
   const flashEl   = document.getElementById("passkey-flash");

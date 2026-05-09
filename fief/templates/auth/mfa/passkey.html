@@ -19,29 +19,34 @@
   </div>
 
   <script type="application/json" id="webauthn-options">{{ options | tojson }}</script>
-  <script type="module">
-    import { authenticateWithEmbeddedOptions } from "/static/webauthn.bundle.js";
+  <script src="{{ url_for('auth:static', path='/webauthn.bundle.js') }}"></script>
+  <script>
+    (function () {
+      const options = JSON.parse(document.getElementById("webauthn-options").textContent);
+      const status = document.getElementById("passkey-status");
+      const totpUrl = {{ tenant.url_path_for(request, 'auth:mfa_totp') | tojson }};
+      const verifyUrl = {{ tenant.url_path_for(request, 'auth:mfa_passkey_verify') | tojson }};
+      const failedMsg = {{ _('Verification failed. Please try again.') | tojson }};
+      const errorMsg = {{ _('Could not verify your passkey.') | tojson }};
+      const fallbackLabel = {{ _('Use an authenticator code instead.') | tojson }};
 
-    const options = JSON.parse(document.getElementById("webauthn-options").textContent);
-    const status = document.getElementById("passkey-status");
-    const totpUrl = {{ tenant.url_path_for(request, 'auth:mfa_totp') | tojson }};
-    const verifyUrl = {{ tenant.url_path_for(request, 'auth:mfa_passkey_verify') | tojson }};
-    const failedMsg = {{ _('Verification failed. Please try again.') | tojson }};
-    const errorMsg = {{ _('Could not verify your passkey.') | tojson }};
-    const fallbackLabel = {{ _('Use an authenticator code instead.') | tojson }};
-
-    (async () => {
-      try {
-        const result = await authenticateWithEmbeddedOptions(options, verifyUrl);
-        if (result && result.redirect_to) {
-          window.location.assign(result.redirect_to);
-        } else {
-          status.innerHTML = '<p class="text-red-600">' + failedMsg + '</p>';
+      (async () => {
+        try {
+          if (!window.fiefWebauthn || typeof window.fiefWebauthn.authenticateWithEmbeddedOptions !== "function") {
+            throw new Error("webauthn bundle not loaded");
+          }
+          const result = await window.fiefWebauthn.authenticateWithEmbeddedOptions(options, verifyUrl);
+          if (result && result.redirect_to) {
+            window.location.assign(result.redirect_to);
+          } else {
+            status.innerHTML = '<p class="text-red-600">' + failedMsg + '</p>';
+          }
+        } catch (err) {
+          console.error("passkey verification failed", err);
+          const link = '<a href="' + totpUrl + '" class="text-teal-600 underline">' + fallbackLabel + '</a>';
+          status.innerHTML = '<p class="text-red-600">' + errorMsg + ' ' + link + '</p>';
         }
-      } catch (err) {
-        const link = '<a href="' + totpUrl + '" class="text-teal-600 underline">' + fallbackLabel + '</a>';
-        status.innerHTML = '<p class="text-red-600">' + errorMsg + ' ' + link + '</p>';
-      }
+      })();
     })();
   </script>
 
