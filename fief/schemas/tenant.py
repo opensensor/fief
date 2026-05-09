@@ -7,6 +7,7 @@ from fief.schemas.oauth_provider import OAuthProviderEmbedded
 class TenantCreate(BaseModel):
     name: str
     registration_allowed: bool = True
+    mfa_required: bool = False
     theme_id: UUID4 | None = None
     logo_url: HttpUrl | None = None
     application_url: HttpUrl | None = None
@@ -16,6 +17,7 @@ class TenantCreate(BaseModel):
 class TenantUpdate(BaseModel):
     name: str | None = None
     registration_allowed: bool | None = None
+    mfa_required: bool | None = None
     theme_id: UUID4 | None = None
     logo_url: HttpUrl | None = None
     application_url: HttpUrl | None = None
@@ -27,6 +29,7 @@ class BaseTenant(UUIDSchema, CreatedUpdatedAt):
     default: bool
     slug: str
     registration_allowed: bool
+    mfa_required: bool
     theme_id: UUID4 | None = None
     logo_url: HttpUrl | None = None
     application_url: HttpUrl | None = None

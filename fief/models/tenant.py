@@ -46,6 +46,9 @@ class Tenant(UUIDModel, CreatedUpdatedAt, Base):
     registration_allowed: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )
+    mfa_required: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     application_url: Mapped[str | None] = mapped_column(
         PydanticUrlString(String)(length=512), default=None, nullable=True
