@@ -202,9 +202,16 @@ Wave 8 (Rollout)
   - `rate_limit_key`: for IPv6 compute `ipaddress.IPv6Network(f"{ip}/64", strict=False).network_address` (so an attacker can't rotate through their /128). For IPv4, return as-is.
   - Add `trusted_proxy_count: int = 1` to settings (in T2's diff). The fief deployment is behind a single ingress LB, so 1 is correct. If the deployment ever moves behind Cloudflare or a second LB tier this needs to grow — flagged in "Open questions deferred".
 - **validation:** Unit-test with a stub `Request`: forwarded-for, no header (uses client.host), IPv6 with /64 collapse, IPv4 unchanged.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - Added `fief/dependencies/client_ip.py` exposing the frozen `ClientIpInfo(raw, rate_limit_key)` dataclass plus `get_client_ip_info` (full info) and `get_client_ip` (back-compat shim returning `.raw`).
+  - XFF resolution is N-from-rightmost where N == `settings.trusted_proxy_count`; missing/empty/whitespace-only headers fall back to `request.client.host`. When the header has fewer entries than expected we fall back to the leftmost entry — the safest known client IP. `getattr(settings, "trusted_proxy_count", 1)` keeps the dependency robust to partial-merge ordering with T2.
+  - Rate-limit key normalisation: IPv6 collapsed to `/64` network address via `ipaddress.IPv6Network(.../64, strict=False)`; IPv4 returned unchanged; unparseable strings returned as-is so they still bucket deterministically. Missing `request.client` falls back to a non-empty `"unknown"` sentinel so audit logs and rate-limit buckets never see an empty key.
+  - Added `tests/dependencies/__init__.py` and `tests/dependencies/test_client_ip.py` covering: no-XFF fallback, `trusted_proxy_count == 0` ignoring XFF, 1-of-2 / 1-of-3 / 2-of-2 / 5-of-2 N-from-rightmost selection, IPv6 `/64` collapse on both XFF and `client.host` paths, IPv4 unchanged, empty/whitespace-only XFF, malformed IP, missing-client sentinel, and the `get_client_ip` back-compat shim. All 14 tests pass with `pytest --no-cov`.
 - **files edited/created:**
+  - `fief/dependencies/client_ip.py` (new)
+  - `tests/dependencies/__init__.py` (new)
+  - `tests/dependencies/test_client_ip.py` (new)
 
 ### T8: UserLockoutRepository
 - **depends_on:** [T5]
@@ -215,9 +222,14 @@ Wave 8 (Rollout)
   - `async increment_and_apply_ladder(user_id) -> UserLockout` — read-then-write inside a single transaction. Read current row (or insert with failed_count=0 if missing), increment by 1, compute new `locked_until` from the ladder (5→+1m, 10→+5m, 20→+15m, 50→+24h), persist. **Race tolerance:** under concurrent failed-login bursts the read-then-write may double-increment; we accept this because the result (account locks slightly faster) is in the correct direction. Avoiding it would require a row-level advisory lock or `SELECT ... FOR UPDATE`, which adds complexity for negligible benefit.
   - `async clear(user_id)` — set failed_count=0 and locked_until=null.
 - **validation:** Smoke test verifies the methods exist with correct signatures.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09 — Implemented `UserLockoutRepository(BaseRepository[UserLockout])` with `model = UserLockout` binding. Methods: `get_by_user_id` (single-row select on PK), `upsert(user_id, *, failed_count, locked_until)` (read; create-or-mutate-then-update), `increment_and_apply_ladder(user_id)` (read-then-write inside the session's transaction; race-tolerant per the plan — see code comment), and `clear(user_id)` (no-op when row missing). The ladder lives in a module-private `_LADDER` dict (`{5: 1m, 10: 5m, 20: 15m, 50: 24h}`) so non-threshold counts leave `locked_until` AS IS — an existing future lockout stays pending. `datetime.now(timezone.utc)` is used for fresh `locked_until` stamps. No `UUIDRepositoryMixin` (the model has no synthetic `id`; `user_id` IS the PK). Export added to `fief/repositories/__init__.py` alphabetically between `UserFieldRepository` and `UserMfaRecoveryCodeRepository` (both in the import block and `__all__`).
+  - TDD: wrote `tests/repositories/test_user_lockout_repo_smoke.py` (7 tests) first — RED produced 7 ImportErrors. After impl, GREEN: 7/7 pass; full `tests/repositories/` suite still 15/15 green.
 - **files edited/created:**
+  - `fief/repositories/user_lockout.py` (new)
+  - `fief/repositories/__init__.py` (modified — added import + `__all__` entry)
+  - `tests/repositories/test_user_lockout_repo_smoke.py` (new)
 
 ### T9: RateLimiter service (Redis sliding-window log)
 - **depends_on:** [T1, T6]
@@ -268,9 +280,15 @@ Wave 8 (Rollout)
 
   **Key namespace.** Use `rl:` prefix exclusively. Dramatiq uses `dramatiq:*`; no collision. `rl:` is reserved for SEC-1's RateLimiter — future security features should pick their own prefix.
 - **validation:** Unit tests cover: under-limit case, over-limit case, sliding-window correctness (entries past `per_seconds` don't count), bucket TTL applied, Redis-down → fail-open returns 0. Use fakeredis.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09 — Implemented `RateLimiter` with the spec'd MULTI/EXEC pipeline (`ZREMRANGEBYSCORE` → `ZADD <uuid>:<now>` → `ZCARD` → `EXPIRE`) and the documented fail-open path: any `RedisError` from pipeline construction or `execute()` is caught, logged at WARNING with `scope` + `exc_class` (deliberately *not* the raw `key`, since it may be a plaintext email — T17 hashes for audit), and the call returns `0` so the request proceeds. `RateLimitWindow` is `frozen=True` so a route handler cannot mutate a shared policy. ZADD members are random UUIDs so duplicate-`now` calls don't dedup via score-update and silently undercount `ZCARD`. Over-limit `Retry-After` is computed from the oldest entry (`ZRANGE 0 0 WITHSCORES`) clamped to `>= 1`; a defensive fallback to `per_seconds` covers the unreachable empty-bucket case.
+  - Added `get_rate_limiter` factory in `fief/dependencies/security.py` next to `get_totp_service` / `get_recovery_code_service`, depending on `get_redis` from T6. Exported in `__all__`.
+  - TDD: wrote 11 cases in `tests/services/test_rate_limiter.py` covering under-limit (1..5), at-limit (10), over-limit raising with `0 < retry_after <= per_seconds`, sliding window via `monkeypatch` of `time.time` (advance past `per_seconds` → next call sees count 1), bucket TTL `0 < ttl <= per_seconds`, independence of `(scope, key)` tuples, fail-open on `RedisError` at pipeline construction, fail-open on `RedisError` raised by `execute()`, exception attribute round-trip, frozen-dataclass immutability, and the `get_rate_limiter` factory binding `service.redis` to the injected fakeredis client. RED first (`ModuleNotFoundError`), then GREEN: 11/11 pass. Full `tests/services/` + `tests/dependencies/` suite still 63/63 green — no regression.
 - **files edited/created:**
+  - `fief/services/security/rate_limiter.py` (new)
+  - `fief/dependencies/security.py` (modified — added `get_rate_limiter` factory + `RateLimiter`/`get_redis` imports)
+  - `tests/services/test_rate_limiter.py` (new; 11 cases)
 
 ### T10: AccountLockoutService
 - **depends_on:** [T8]

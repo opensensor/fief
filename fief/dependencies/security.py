@@ -9,10 +9,12 @@ them via :func:`fastapi.Depends`; tests can override them through
 
 from __future__ import annotations
 
+import redis.asyncio
 from fastapi import HTTPException, Request, status
 from fastapi import Depends
 
 from fief.dependencies.logger import get_audit_logger
+from fief.dependencies.redis import get_redis
 from fief.dependencies.repositories import get_repository
 from fief.logger import AuditLogger
 from fief.models import Tenant, User
@@ -21,11 +23,13 @@ from fief.repositories import (
     UserRepository,
     UserTotpSecretRepository,
 )
+from fief.services.security.rate_limiter import RateLimiter
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService
 
 __all__ = [
     "enforce_tenant_mfa_required",
+    "get_rate_limiter",
     "get_recovery_code_service",
     "get_totp_service",
 ]
@@ -59,6 +63,16 @@ async def get_recovery_code_service(
         recovery_repo=recovery_repo,
         audit_logger=audit_logger,
     )
+
+
+async def get_rate_limiter(
+    redis_client: redis.asyncio.Redis = Depends(get_redis),
+) -> RateLimiter:
+    """Per-request :class:`RateLimiter` bound to the singleton async
+    Redis client. Tests override either this factory or
+    :func:`fief.dependencies.redis.get_redis` to inject ``fakeredis``."""
+
+    return RateLimiter(redis_client)
 
 
 # ---------------------------------------------------------------------------
