@@ -1,6 +1,7 @@
 from typing import TypedDict
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from fief import schemas
 from fief.apps.auth.forms.mfa import TotpDisableForm, TotpEnrollConfirmForm
@@ -12,10 +13,12 @@ from fief.dependencies.brand import get_current_brand
 from fief.dependencies.branding import get_show_branding
 from fief.dependencies.security import (
     enforce_tenant_mfa_required,
+    get_device_sessions_service,
     get_recovery_code_service,
     get_totp_service,
 )
 from fief.dependencies.session_token import (
+    get_session_token_or_login,
     get_verified_email_user_from_session_token_or_verify,
 )
 from fief.dependencies.tasks import get_send_task
@@ -24,7 +27,8 @@ from fief.dependencies.theme import get_current_theme
 from fief.dependencies.users import get_user_manager, get_user_update_model
 from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
-from fief.models import Brand, Tenant, Theme, User
+from fief.models import Brand, SessionToken, Tenant, Theme, User
+from fief.services.security.device_sessions import DeviceSessionsService
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import (
     MfaAlreadyEnrolledError,
@@ -586,4 +590,140 @@ async def mfa_recovery_regen(
             "codes": recovery_codes,
             "success": _("New recovery codes generated. Save them now."),
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# UX-1 T11: /security/sessions — devices tab routes
+# ---------------------------------------------------------------------------
+#
+# These three routes power the "Active sessions" / devices tab in the user
+# dashboard. They mount under the same router as the Profile / Password /
+# MFA routes so they inherit the brand-aware ``BaseContext`` (user, tenant,
+# brand, theme, MFA-enforcement gate).
+#
+# Authorization model
+# ~~~~~~~~~~~~~~~~~~~
+# Every device row is filtered through
+# :meth:`DeviceSessionsService.list_for_user(user.id, ...)`. The opaque
+# ``device_key`` URL segment is just a stable hash of token ids inside
+# that user-scoped result set; a key from another user's listing simply
+# won't appear in the requester's set, so the matching step returns
+# ``None`` and we translate to 404. There is no separate cross-user
+# authorization check needed at the route layer.
+
+
+@router.get(
+    "/security/sessions", name="auth.dashboard:sessions_index"
+)
+async def sessions_index(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
+    context: BaseContext = Depends(get_base_context),
+):
+    """Render the "Active sessions" tab.
+
+    The actual template (``auth/dashboard/security/sessions.html``) ships
+    in T13. This route only assembles the context: the deduped device
+    list (with ``is_current`` annotated for the requester's session
+    cookie) plus the standard ``current_route`` marker the sidebar uses
+    to highlight the active tab.
+    """
+
+    devices = await device_sessions_service.list_for_user(
+        user.id, current_session_id=session_token.id
+    )
+    return templates.TemplateResponse(
+        request,
+        "auth/dashboard/security/sessions.html",
+        {
+            **context,
+            "current_route": "auth.dashboard:sessions_index",
+            "devices": devices,
+        },
+    )
+
+
+@router.delete(
+    "/security/sessions/{device_key}",
+    name="auth.dashboard:sessions_revoke",
+)
+async def sessions_revoke(
+    request: Request,
+    device_key: str,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
+    tenant: Tenant = Depends(get_current_tenant),
+):
+    """Revoke a single device row.
+
+    Three response shapes:
+
+    - **404** when ``device_key`` doesn't match any row in the
+      requester's listing — the concurrent-double-click guard. HTMX
+      swallows it as a no-op so the button can re-enable cleanly.
+    - **303** to ``/login`` when the revoked row is the requester's
+      *current* session. We deliberately do NOT call ``delete_cookie``
+      here: the session-token row backing the cookie is gone, so the
+      next request's cookie validation fails naturally and the user
+      lands on /login. Returning 303 also lets HTMX honor the redirect
+      via ``HX-Redirect`` semantics (303 + Location is a hard navigation
+      regardless of the request kind).
+    - **204** when a non-current device was revoked. HTMX removes the
+      row from the table on success.
+    """
+
+    revoked = await device_sessions_service.revoke(user.id, device_key)
+    if revoked is None:
+        # Stale device_key (concurrent double-click, foreign user, etc.).
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+    if session_token.id in revoked.session_token_ids:
+        # The user just revoked their own current session. The cookie's
+        # underlying row is gone — return a 303 to /login. No explicit
+        # delete_cookie() needed; the next request's stale cookie fails
+        # to validate and the user is redirected naturally.
+        return RedirectResponse(
+            tenant.url_path_for(request, "auth:login"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/security/sessions/sign-out-others",
+    name="auth.dashboard:sessions_sign_out_others",
+)
+async def sessions_sign_out_others(
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    session_token: SessionToken = Depends(get_session_token_or_login),
+    device_sessions_service: DeviceSessionsService = Depends(
+        get_device_sessions_service
+    ),
+):
+    """Sign out of every device except the current session.
+
+    Returns a small JSON payload with the revoked counts so HTMX can
+    render the success flash. Other devices return 401 / redirect to
+    /login on their next request because their session and refresh
+    tokens have been deleted.
+    """
+
+    s_count, r_count = await device_sessions_service.sign_out_others(
+        user.id, current_session_id=session_token.id
+    )
+    return JSONResponse(
+        {
+            "success": True,
+            "revoked_session_count": s_count,
+            "revoked_refresh_count": r_count,
+        }
     )
