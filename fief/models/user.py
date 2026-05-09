@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from fief.models.user_lockout import UserLockout
     from fief.models.user_mfa_recovery_code import UserMfaRecoveryCode
     from fief.models.user_totp_secret import UserTotpSecret
+    from fief.models.user_webauthn_credential import UserWebAuthnCredential
 
 
 class User(UUIDModel, CreatedUpdatedAt, Base):
@@ -54,6 +55,11 @@ class User(UUIDModel, CreatedUpdatedAt, Base):
         "UserLockout",
         back_populates="user",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+    webauthn_credentials: Mapped[list["UserWebAuthnCredential"]] = relationship(
+        "UserWebAuthnCredential",
+        back_populates="user",
         cascade="all, delete-orphan",
     )
 

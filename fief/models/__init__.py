@@ -32,6 +32,7 @@ from fief.models.user_mfa_recovery_code import UserMfaRecoveryCode
 from fief.models.user_permission import UserPermission
 from fief.models.user_role import UserRole
 from fief.models.user_totp_secret import UserTotpSecret
+from fief.models.user_webauthn_credential import UserWebAuthnCredential
 from fief.models.webhook import Webhook
 from fief.models.webhook_log import WebhookLog
 
@@ -74,6 +75,7 @@ __all__ = [
     "UserPermission",
     "UserRole",
     "UserTotpSecret",
+    "UserWebAuthnCredential",
     "Webhook",
     "WebhookLog",
 ]
