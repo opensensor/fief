@@ -154,6 +154,34 @@ class Settings(BaseSettings):
     mfa_secret_encryption_key: str | None = None
     mfa_secret_encryption_keys: list[str] | None = None
 
+    # Rate limiting (T2 of SEC-1).
+    # Sliding-window per-IP / per-email caps applied across the auth surface.
+    # State lives in Redis (see ``redis_url``); the toggle below is a global
+    # kill-switch used by the route wiring and the no-op limiter factory.
+    rate_limit_enabled: bool = True
+    rate_limit_login_per_ip_per_min: int = 30
+    rate_limit_login_per_email_per_min: int = 10
+    rate_limit_forgot_per_ip_per_min: int = 10
+    rate_limit_forgot_per_email_per_hour: int = 3
+    rate_limit_register_per_ip_per_min: int = 5
+    rate_limit_verify_per_ip_per_min: int = 30
+    rate_limit_verify_per_email_per_5min: int = 10
+    rate_limit_mfa_per_ip_per_min: int = 30
+
+    # Enumeration / timing hardening (T2 of SEC-1).
+    # ``register_silent_on_email_collision`` keeps the production register
+    # response shape identical for new and pre-existing emails. Dev/staging
+    # should override to ``false`` for clearer local UX.
+    # ``auth_failure_min_latency_ms`` is the wall-clock floor on the
+    # login-failure path (T11) so timing analysis can't tell user-exists
+    # from user-missing.
+    # ``trusted_proxy_count`` controls how many ``X-Forwarded-For`` hops we
+    # trust (T7). Default ``1`` matches the DOKS single-ingress LB; raise
+    # this if the deployment ever sits behind another fronting proxy.
+    register_silent_on_email_collision: bool = True
+    auth_failure_min_latency_ms: int = 150
+    trusted_proxy_count: int = 1
+
     branding: bool = True
     override_templates_directory: DirectoryPath | None = None
 
