@@ -500,6 +500,9 @@ async def verify_email(
     user_manager: UserManager = Depends(get_user_manager),
     tenant: Tenant = Depends(get_current_tenant),
     context: BaseContext = Depends(get_base_context),
+    ip_info: ClientIpInfo = Depends(get_client_ip_info),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
 ):
     form_helper = FormHelper(
         VerifyEmailForm,
@@ -509,20 +512,81 @@ async def verify_email(
     )
     form = await form_helper.get_form()
 
+    async def _generic_invalid_code_response():
+        """Render the same form error the bad-code path returns. Used by
+        the SEC-1 rate-limit gate so a throttled caller can't tell whether
+        the code was valid or whether their bucket was full."""
+
+        return await form_helper.get_error_response(
+            _(
+                "The verification code is invalid. Please check that you have entered it correctly. "
+                "If the code was copied and pasted, ensure it has not expired. "
+                "If it has been more than one hour, please request a new verification code."
+            ),
+            "invalid_code",
+        )
+
     if await form_helper.is_submitted_and_valid():
+        # ---- SEC-1 T14: pre-verify rate-limit gates -----------------------
+        # The identifier for the per-email bucket is the email of the
+        # pending user injected by ``get_user_from_session_token_or_login``;
+        # we normalise it for parity with the /login bucket. On
+        # RateLimitExceeded we audit and return the SAME generic
+        # invalid-code form error the bad-code path renders, so a
+        # throttled attacker can't distinguish "bucket full" from "wrong
+        # code" — and crucially, can't probe whether the code was for a
+        # known account.
+        if settings.rate_limit_enabled:
+            email_normalized = (user.email or "").strip().lower()
+
+            try:
+                await rate_limiter.check(
+                    scope="verify_ip",
+                    key=ip_info.rate_limit_key,
+                    window=RateLimitWindow(
+                        settings.rate_limit_verify_per_ip_per_min, 60
+                    ),
+                )
+            except RateLimitExceeded:
+                audit_logger(
+                    AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                    extra={
+                        "scope": "verify_ip",
+                        "key_hash": _hash_key(ip_info.rate_limit_key),
+                        "endpoint": "/verify-email",
+                        "client_ip": ip_info.raw,
+                    },
+                )
+                return await _generic_invalid_code_response()
+
+            if email_normalized:
+                try:
+                    await rate_limiter.check(
+                        scope="verify_email",
+                        key=email_normalized,
+                        window=RateLimitWindow(
+                            settings.rate_limit_verify_per_email_per_5min,
+                            300,
+                        ),
+                    )
+                except RateLimitExceeded:
+                    audit_logger(
+                        AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                        extra={
+                            "scope": "verify_email",
+                            "key_hash": _hash_key(email_normalized),
+                            "endpoint": "/verify-email",
+                            "client_ip": ip_info.raw,
+                        },
+                    )
+                    return await _generic_invalid_code_response()
+
         try:
             user = await user_manager.verify_email(
                 user, form.code.data, request=request
             )
         except InvalidEmailVerificationCodeError:
-            return await form_helper.get_error_response(
-                _(
-                    "The verification code is invalid. Please check that you have entered it correctly. "
-                    "If the code was copied and pasted, ensure it has not expired. "
-                    "If it has been more than one hour, please request a new verification code."
-                ),
-                "invalid_code",
-            )
+            return await _generic_invalid_code_response()
 
         if login_session is not None:
             response = RedirectResponse(
@@ -689,6 +753,8 @@ async def mfa_totp(
     user_repository: UserRepository = Depends(
         get_repository(UserRepository)
     ),
+    ip_info: ClientIpInfo = Depends(get_client_ip_info),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
 ):
     user, redirect = await _gate_mfa_challenge(
         request,
@@ -723,6 +789,44 @@ async def mfa_totp(
 
     if not await form_helper.is_submitted_and_valid():
         return await form_helper.get_response()
+
+    # ---- SEC-1 T14: per-IP gate ON TOP of MFA-1's per-LoginSession lockout
+    # ---------------------------------------------------------------------
+    # SEC-1 layers a per-IP rate limit on top of the existing per-LoginSession
+    # ``mfa_attempts_count`` lockout that MFA-1 owns. The per-account
+    # ``account_lockout.record_failed`` path is intentionally NOT touched
+    # here — losing your phone shouldn't lock your whole account on top of
+    # the session-bound counter that already does the right thing. Per the
+    # SEC-1 plan T14, MFA-1's counter is the right scope for MFA failures.
+    #
+    # We also fire the gate BEFORE incrementing ``mfa_attempts_count`` so a
+    # throttled attacker can't burn through MFA-1's 5-strike budget by
+    # spamming a known LoginSession from many IPs. On exceed, we return the
+    # SAME generic form error the wrong-code path returns.
+    if settings.rate_limit_enabled:
+        try:
+            await rate_limiter.check(
+                scope="mfa_totp_ip",
+                key=ip_info.rate_limit_key,
+                window=RateLimitWindow(
+                    settings.rate_limit_mfa_per_ip_per_min, 60
+                ),
+            )
+        except RateLimitExceeded:
+            audit_logger(
+                AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                subject_user_id=user.id,
+                extra={
+                    "scope": "mfa_totp_ip",
+                    "key_hash": _hash_key(ip_info.rate_limit_key),
+                    "endpoint": "/mfa/totp",
+                    "client_ip": ip_info.raw,
+                },
+            )
+            message = _("Invalid code. Please try again.")
+            return await form_helper.get_error_response(
+                message, "invalid_mfa_code"
+            )
 
     form = await form_helper.get_form()
     result = await totp_service.verify(user, form.code.data)
@@ -802,6 +906,8 @@ async def mfa_recover(
     user_repository: UserRepository = Depends(
         get_repository(UserRepository)
     ),
+    ip_info: ClientIpInfo = Depends(get_client_ip_info),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
 ):
     user, redirect = await _gate_mfa_challenge(
         request,
@@ -836,6 +942,62 @@ async def mfa_recover(
 
     if not await form_helper.is_submitted_and_valid():
         return await form_helper.get_response()
+
+    # ---- SEC-1 T14: per-IP + per-email gates on /mfa/recover ------------
+    # Recovery codes are precious — the PRD asks for the most-locked-down
+    # gate on this endpoint. The caps are hardcoded here (5 per 10 min/IP,
+    # 3 per hour/email) rather than read from settings; if we want to make
+    # them tunable later that's a follow-up. As with /mfa/totp, the SEC-1
+    # gate fires BEFORE the recovery-code consume call AND BEFORE the
+    # MFA-1 per-LoginSession counter increment, so a throttled attacker
+    # cannot burn through either budget. A throttled call returns the
+    # SAME generic invalid-code form error the bad-code path renders.
+    if settings.rate_limit_enabled:
+        try:
+            await rate_limiter.check(
+                scope="mfa_recover_ip",
+                key=ip_info.rate_limit_key,
+                window=RateLimitWindow(5, 600),
+            )
+        except RateLimitExceeded:
+            audit_logger(
+                AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                subject_user_id=user.id,
+                extra={
+                    "scope": "mfa_recover_ip",
+                    "key_hash": _hash_key(ip_info.rate_limit_key),
+                    "endpoint": "/mfa/recover",
+                    "client_ip": ip_info.raw,
+                },
+            )
+            message = _("Invalid recovery code. Please try again.")
+            return await form_helper.get_error_response(
+                message, "invalid_recovery_code"
+            )
+
+        email_normalized = (user.email or "").strip().lower()
+        if email_normalized:
+            try:
+                await rate_limiter.check(
+                    scope="mfa_recover_email",
+                    key=email_normalized,
+                    window=RateLimitWindow(3, 3600),
+                )
+            except RateLimitExceeded:
+                audit_logger(
+                    AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                    subject_user_id=user.id,
+                    extra={
+                        "scope": "mfa_recover_email",
+                        "key_hash": _hash_key(email_normalized),
+                        "endpoint": "/mfa/recover",
+                        "client_ip": ip_info.raw,
+                    },
+                )
+                message = _("Invalid recovery code. Please try again.")
+                return await form_helper.get_error_response(
+                    message, "invalid_recovery_code"
+                )
 
     form = await form_helper.get_form()
     accepted = await recovery_code_service.consume(user, form.code.data)
