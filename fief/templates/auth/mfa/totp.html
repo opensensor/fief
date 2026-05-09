@@ -1,0 +1,43 @@
+{% import "macros/buttons.html" as buttons %}
+{% import 'macros/forms.html' as forms %}
+
+{% extends "auth/layout.html" %}
+
+{% block head_title_content %}{{ _('Two-step verification') }}{% endblock %}
+
+{% block title %}{{ _('Two-step verification') }}{% endblock %}
+
+{% block auth_form %}
+  <form method="POST" action="{{ tenant.url_path_for(request, 'auth:mfa_totp') }}">
+    <div class="space-y-4">
+      <p class="text-sm text-slate-600">
+        {{ _("Enter the 6-digit code from your authenticator app to finish signing in.") }}
+      </p>
+      <div>
+        {{ forms.form_field_label(form.code) }}
+        {{ form.code(
+          class="form-input w-full text-center text-2xl tracking-[0.5em] font-mono",
+          inputmode="numeric",
+          autocomplete="one-time-code",
+          maxlength="6",
+          pattern="[0-9]{6}",
+          autofocus=true,
+          required=true,
+        ) }}
+        {{ forms.form_field_errors(form.code) }}
+      </div>
+      {{ forms.form_csrf_token(form) }}
+    </div>
+    <div class="flex items-center justify-end mt-6">
+      {% call buttons.submit('btn bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all') %}
+        {{ _("Verify and sign in") }}
+      {% endcall %}
+    </div>
+  </form>
+  <div class="pt-5 mt-6 border-t border-teal-100/50">
+    <div class="text-sm text-center">
+      <span class="text-slate-600">{{ _("Lost your device?") }}</span>
+      <a href="{{ tenant.url_path_for(request, 'auth:mfa_recover') }}" class="font-semibold text-primary-500 hover:text-primary-600 underline hover:no-underline ml-1">{{ _("Use a recovery code") }}</a>
+    </div>
+  </div>
+{% endblock %}

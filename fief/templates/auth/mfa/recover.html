@@ -1,0 +1,45 @@
+{% import "macros/buttons.html" as buttons %}
+{% import 'macros/forms.html' as forms %}
+
+{% extends "auth/layout.html" %}
+
+{% block head_title_content %}{{ _('Use a recovery code') }}{% endblock %}
+
+{% block title %}{{ _('Use a recovery code') }}{% endblock %}
+
+{% block auth_form %}
+  <form method="POST" action="{{ tenant.url_path_for(request, 'auth:mfa_recover') }}">
+    <div class="space-y-4">
+      <p class="text-sm text-slate-600">
+        {{ _("Enter one of the recovery codes you saved when setting up two-factor authentication. Each code can be used once.") }}
+      </p>
+      <div>
+        {{ forms.form_field_label(form.code) }}
+        {{ form.code(
+          class="form-input w-full text-center text-lg tracking-[0.25em] font-mono uppercase",
+          autocomplete="one-time-code",
+          autocapitalize="characters",
+          spellcheck="false",
+          maxlength="9",
+          placeholder="XXXX-XXXX",
+          pattern="[A-Za-z0-9]{4}-?[A-Za-z0-9]{4}",
+          autofocus=true,
+          required=true,
+        ) }}
+        {{ forms.form_field_errors(form.code) }}
+      </div>
+      {{ forms.form_csrf_token(form) }}
+    </div>
+    <div class="flex items-center justify-end mt-6">
+      {% call buttons.submit('btn bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all') %}
+        {{ _("Verify and sign in") }}
+      {% endcall %}
+    </div>
+  </form>
+  <div class="pt-5 mt-6 border-t border-teal-100/50">
+    <div class="text-sm text-center">
+      <span class="text-slate-600">{{ _("Have your authenticator?") }}</span>
+      <a href="{{ tenant.url_path_for(request, 'auth:mfa_totp') }}" class="font-semibold text-primary-500 hover:text-primary-600 underline hover:no-underline ml-1">{{ _("Enter a code instead") }}</a>
+    </div>
+  </div>
+{% endblock %}
