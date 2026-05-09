@@ -169,4 +169,22 @@ module.exports = [
       terser(),
     ],
   },
+  {
+    input: './js/webauthn.mjs',
+    output: {
+      file: './fief/static/webauthn.bundle.js',
+      format: 'iife',
+      name: 'fiefWebauthn',
+    },
+    plugins: [
+      nodeResolve(),
+      babel({
+        babelHelpers: 'runtime',
+        plugins: [
+          ['@babel/plugin-transform-runtime', { useESModules: false }]
+        ],
+      }),
+      terser(),
+    ],
+  },
 ];
