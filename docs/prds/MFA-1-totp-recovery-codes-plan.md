@@ -259,9 +259,20 @@ Wave 9 (Rollout)
   - `POST /security/mfa/totp/disable` — `TotpDisableForm`; password re-prompt; on success disables.
   - `POST /security/mfa/recovery-codes/regenerate` — re-issues codes; renders the same once-only display page.
 - **validation:** Each route returns the expected templates with brand/tenant context populated.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - Added five routes to `fief/apps/auth/routers/dashboard.py`: `mfa_index` (GET), `mfa_totp_begin` (POST), `mfa_totp_confirm` (POST), `mfa_totp_disable` (POST), `mfa_recovery_regen` (POST). Issuer label is sourced from `brand.name if brand else tenant.name` per spec.
+  - `mfa_totp_disable` requires both a valid password (via `user_manager.password_helper.verify_and_update`, mirroring the `email_change` pattern) AND a valid TOTP **or** recovery code (single combined `code` field — TOTP is tried first, then recovery, no leakage of which side matched). On success returns `HXLocationResponse` to `/security/mfa`.
+  - `mfa_recovery_regen` 404s when `user.mfa_enabled is False` to avoid leaking enrollment state.
+  - On `MfaAlreadyEnrolledError` from `begin`, the index template is re-rendered with an inline error rather than a flash redirect (the existing dashboard router has no flash mechanism).
+  - Created `fief/dependencies/security.py` with `get_totp_service` and `get_recovery_code_service` factories. Both wire the matching repositories (via `get_repository(...)`) and the request-scoped `AuditLogger` (`get_audit_logger`). Tests can override these via `app.dependency_overrides` like any other FastAPI dependency.
+  - TDD: `tests/apps/auth/routers/test_dashboard_mfa.py` covers GET/POST shapes, end-to-end TOTP enroll-with-pyotp, wrong-password disable, password+recovery-code disable, and the `mfa_enabled`-gated regen 404. Templates owned by T17/T19 don't exist yet, so the tests splice a Jinja `DictLoader` ahead of the real loader to render JSON-context stubs for the three security templates — this keeps the route logic under test without preempting T17/T19's design work.
+  - `.venv/bin/python -m pytest tests/apps/auth/routers/test_dashboard_mfa.py tests/test_apps_auth_dashboard.py tests/services/test_totp_service.py tests/services/test_recovery_code_service.py tests/test_apps_auth_forms_mfa.py tests/apps/auth/routers/test_login_mfa_branch.py --no-cov` → **71 passed**.
 - **files edited/created:**
+  - `fief/apps/auth/routers/dashboard.py` (edited — five new routes, imports updated for security forms/services and `templates`)
+  - `fief/dependencies/security.py` (new — `get_totp_service`, `get_recovery_code_service` factories)
+  - `tests/apps/auth/routers/test_dashboard_mfa.py` (new — 8 tests covering all five routes)
+  - `docs/prds/MFA-1-totp-recovery-codes-plan.md` (T13 status/log)
 
 ### T14: Login-time challenge routes — /mfa/totp + /mfa/recover
 - **depends_on:** [T8, T10, T11, T12]

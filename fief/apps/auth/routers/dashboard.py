@@ -1,14 +1,19 @@
 from typing import TypedDict
 
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from fief import schemas
+from fief.apps.auth.forms.mfa import TotpDisableForm, TotpEnrollConfirmForm
 from fief.apps.auth.forms.password import ChangePasswordForm
 from fief.apps.auth.forms.profile import PF, ChangeEmailForm, get_profile_form_class
 from fief.apps.auth.forms.verify_email import VerifyEmailForm
 from fief.apps.auth.responses import HXLocationResponse
 from fief.dependencies.brand import get_current_brand
 from fief.dependencies.branding import get_show_branding
+from fief.dependencies.security import (
+    get_recovery_code_service,
+    get_totp_service,
+)
 from fief.dependencies.session_token import (
     get_verified_email_user_from_session_token_or_verify,
 )
@@ -18,12 +23,19 @@ from fief.dependencies.users import get_user_manager, get_user_update_model
 from fief.forms import FormHelper
 from fief.locale import gettext_lazy as _
 from fief.models import Brand, Tenant, Theme, User
+from fief.services.security.recovery_codes import RecoveryCodeService
+from fief.services.security.totp import (
+    MfaAlreadyEnrolledError,
+    TotpService,
+    VerifyResult,
+)
 from fief.services.user_manager import (
     InvalidEmailVerificationCodeError,
     UserAlreadyExistsError,
     UserManager,
 )
 from fief.settings import settings
+from fief.templates import templates
 
 router = APIRouter()
 
@@ -230,3 +242,297 @@ async def update_password(
         )
 
     return await form_helper.get_response()
+
+
+# ---------------------------------------------------------------------------
+# MFA / security routes (T13)
+# ---------------------------------------------------------------------------
+#
+# These routes mount the second-factor enrollment / disable / regeneration
+# UI under the existing dashboard router so they inherit the brand-aware
+# ``BaseContext`` (user, tenant, brand, theme). Templates (T17/T19) own the
+# rendering — the routes only wire data into the context.
+#
+# Notes:
+# - The QR/secret bundle is regenerated on every retry (the upsert behaviour
+#   in ``TotpService.begin_enrollment`` replaces an unconfirmed row), so a
+#   bad confirmation code never strands the user with a stale secret.
+# - The disable flow requires BOTH the current password AND a valid
+#   authenticator code OR recovery code. Either one of the two factors
+#   alone is insufficient.
+# - Recovery codes are displayed exactly once after generation. The DB only
+#   stores bcrypt hashes (see :mod:`fief.services.security.recovery_codes`).
+
+
+def _mfa_label(brand: Brand | None, tenant: Tenant) -> str:
+    """Issuer label embedded in the otpauth:// URI shown to the user.
+
+    Brands take precedence over the tenant name so the entry in the user's
+    authenticator app reads the way they expect ("LightNVR" rather than
+    "Default tenant").
+    """
+
+    return brand.name if brand is not None else tenant.name
+
+
+@router.get("/security/mfa", name="auth.dashboard:mfa_index")
+async def mfa_index(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    context: BaseContext = Depends(get_base_context),
+):
+    return templates.TemplateResponse(
+        request,
+        "auth/dashboard/security/index.html",
+        {
+            **context,
+            "current_route": "auth.dashboard:mfa_index",
+            "mfa_enabled": user.mfa_enabled,
+        },
+    )
+
+
+@router.post("/security/mfa/totp/begin", name="auth.dashboard:mfa_totp_begin")
+async def mfa_totp_begin(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    tenant: Tenant = Depends(get_current_tenant),
+    brand: Brand | None = Depends(get_current_brand),
+    totp_service: TotpService = Depends(get_totp_service),
+    context: BaseContext = Depends(get_base_context),
+):
+    label = _mfa_label(brand, tenant)
+    try:
+        enrollment = await totp_service.begin_enrollment(user, label)
+    except MfaAlreadyEnrolledError:
+        # Refuse to silently overwrite a working second factor; render the
+        # landing with a clear error so the user goes through ``disable``
+        # first.
+        return templates.TemplateResponse(
+            request,
+            "auth/dashboard/security/index.html",
+            {
+                **context,
+                "current_route": "auth.dashboard:mfa_index",
+                "mfa_enabled": user.mfa_enabled,
+                "error": _("MFA is already enabled. Disable it first."),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    form = TotpEnrollConfirmForm(meta={"request": request})
+    return templates.TemplateResponse(
+        request,
+        "auth/dashboard/security/setup.html",
+        {
+            **context,
+            "current_route": "auth.dashboard:mfa_index",
+            "form": form,
+            "secret_b32": enrollment.secret_b32,
+            "qr_png_data_uri": enrollment.qr_png_data_uri,
+            "otpauth_uri": enrollment.otpauth_uri,
+        },
+    )
+
+
+@router.post("/security/mfa/totp/confirm", name="auth.dashboard:mfa_totp_confirm")
+async def mfa_totp_confirm(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    tenant: Tenant = Depends(get_current_tenant),
+    brand: Brand | None = Depends(get_current_brand),
+    totp_service: TotpService = Depends(get_totp_service),
+    recovery_code_service: RecoveryCodeService = Depends(
+        get_recovery_code_service
+    ),
+    context: BaseContext = Depends(get_base_context),
+):
+    form_helper = FormHelper(
+        TotpEnrollConfirmForm,
+        "auth/dashboard/security/setup.html",
+        request=request,
+        context={**context, "current_route": "auth.dashboard:mfa_index"},
+    )
+
+    if not await form_helper.is_submitted_and_valid():
+        # Form-level validation failure (missing/malformed code). Re-issue a
+        # fresh QR so the template still has something to render — the
+        # upsert in ``begin_enrollment`` keeps this idempotent.
+        try:
+            enrollment = await totp_service.begin_enrollment(
+                user, _mfa_label(brand, tenant)
+            )
+        except MfaAlreadyEnrolledError:
+            # Edge case: another tab already confirmed. Bounce to the
+            # landing page rather than rendering a stale QR.
+            return templates.TemplateResponse(
+                request,
+                "auth/dashboard/security/index.html",
+                {
+                    **context,
+                    "current_route": "auth.dashboard:mfa_index",
+                    "mfa_enabled": user.mfa_enabled,
+                },
+            )
+        form_helper.context.update(
+            {
+                "secret_b32": enrollment.secret_b32,
+                "qr_png_data_uri": enrollment.qr_png_data_uri,
+                "otpauth_uri": enrollment.otpauth_uri,
+            }
+        )
+        return await form_helper.get_response()
+
+    form = await form_helper.get_form()
+    confirmed = await totp_service.confirm_enrollment(user, form.code.data)
+
+    if not confirmed:
+        # Bad code: re-render the setup page with a fresh QR (the unconfirmed
+        # row stays in place across this retry, but rebuilding the bundle
+        # gives the template the same shape it expects).
+        try:
+            enrollment = await totp_service.begin_enrollment(
+                user, _mfa_label(brand, tenant)
+            )
+        except MfaAlreadyEnrolledError:
+            # Defensive: can't really happen here (confirm failed → row
+            # is still unconfirmed) but keep the path total.
+            return templates.TemplateResponse(
+                request,
+                "auth/dashboard/security/index.html",
+                {
+                    **context,
+                    "current_route": "auth.dashboard:mfa_index",
+                    "mfa_enabled": user.mfa_enabled,
+                },
+            )
+        message = _("That code didn't match. Try again.")
+        form.code.errors.append(message)
+        form_helper.context.update(
+            {
+                "secret_b32": enrollment.secret_b32,
+                "qr_png_data_uri": enrollment.qr_png_data_uri,
+                "otpauth_uri": enrollment.otpauth_uri,
+            }
+        )
+        return await form_helper.get_error_response(message, "invalid_totp_code")
+
+    recovery_codes = await recovery_code_service.generate_for(user)
+    return templates.TemplateResponse(
+        request,
+        "auth/dashboard/security/recovery_codes.html",
+        {
+            **context,
+            "current_route": "auth.dashboard:mfa_index",
+            "codes": recovery_codes,
+            "success": _("Two-factor authentication enabled."),
+        },
+    )
+
+
+@router.post("/security/mfa/totp/disable", name="auth.dashboard:mfa_totp_disable")
+async def mfa_totp_disable(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    user_manager: UserManager = Depends(get_user_manager),
+    totp_service: TotpService = Depends(get_totp_service),
+    recovery_code_service: RecoveryCodeService = Depends(
+        get_recovery_code_service
+    ),
+    tenant: Tenant = Depends(get_current_tenant),
+    context: BaseContext = Depends(get_base_context),
+):
+    form_helper = FormHelper(
+        TotpDisableForm,
+        "auth/dashboard/security/index.html",
+        request=request,
+        context={
+            **context,
+            "current_route": "auth.dashboard:mfa_index",
+            "mfa_enabled": user.mfa_enabled,
+        },
+    )
+
+    if not await form_helper.is_submitted_and_valid():
+        return await form_helper.get_response()
+
+    form = await form_helper.get_form()
+
+    # Step 1: re-prompt password. Mirror the `email_change` pattern.
+    (
+        password_valid,
+        _hash_update,
+    ) = user_manager.password_helper.verify_and_update(
+        form.current_password.data, user.hashed_password
+    )
+
+    if not password_valid:
+        message = _("Your password is invalid.")
+        form.current_password.errors.append(message)
+        return await form_helper.get_error_response(
+            message, "invalid_current_password"
+        )
+
+    # Step 2: require a valid TOTP **or** recovery code. Try TOTP first
+    # (cheaper), fall back to recovery if it's not a 6-digit shape or it
+    # didn't verify. We never leak which side matched.
+    code = form.code.data
+    second_factor_ok = False
+    if code.isdigit() and len(code) == 6:
+        verify_result = await totp_service.verify(user, code)
+        if verify_result == VerifyResult.SUCCESS:
+            second_factor_ok = True
+    if not second_factor_ok:
+        if await recovery_code_service.consume(user, code):
+            second_factor_ok = True
+
+    if not second_factor_ok:
+        message = _("Invalid authenticator or recovery code.")
+        form.code.errors.append(message)
+        return await form_helper.get_error_response(
+            message, "invalid_mfa_code"
+        )
+
+    await totp_service.disable(user)
+
+    # Re-fetch context flag so the success render reflects the new state.
+    form_helper.context["mfa_enabled"] = False
+    form_helper.context["success"] = _("Two-factor authentication disabled.")
+
+    # Tell HTMX to fully reload the security page so the disabled banner
+    # replaces the form.
+    return HXLocationResponse(
+        tenant.url_for(request, "auth.dashboard:mfa_index"),
+        status_code=status.HTTP_200_OK,
+    )
+
+
+@router.post(
+    "/security/mfa/recovery-codes/regenerate",
+    name="auth.dashboard:mfa_recovery_regen",
+)
+async def mfa_recovery_regen(
+    request: Request,
+    user: User = Depends(get_verified_email_user_from_session_token_or_verify),
+    recovery_code_service: RecoveryCodeService = Depends(
+        get_recovery_code_service
+    ),
+    context: BaseContext = Depends(get_base_context),
+):
+    if not user.mfa_enabled:
+        # Don't regenerate codes for users who haven't enrolled — pretend
+        # the route doesn't exist rather than returning a 4xx, so we don't
+        # leak enrollment state.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    recovery_codes = await recovery_code_service.generate_for(user)
+    return templates.TemplateResponse(
+        request,
+        "auth/dashboard/security/recovery_codes.html",
+        {
+            **context,
+            "current_route": "auth.dashboard:mfa_index",
+            "codes": recovery_codes,
+            "success": _("New recovery codes generated. Save them now."),
+        },
+    )
