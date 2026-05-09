@@ -25,6 +25,7 @@ from fief.db.types import DatabaseConnectionParameters, DatabaseType, get_driver
 from fief.dependencies.db import get_main_async_session
 from fief.dependencies.fief import get_fief
 from fief.dependencies.redis import get_redis
+from fief.dependencies.security import get_breached_password_checker
 from fief.dependencies.tasks import get_send_task
 from fief.dependencies.tenant_email_domain import get_tenant_email_domain
 from fief.dependencies.theme import get_theme_preview
@@ -325,6 +326,20 @@ async def test_client_generator(
             lambda: tenant_email_domain_mock
         )
         app.dependency_overrides[get_redis] = lambda: fake_redis
+        # SEC-2 T7: every password-set request now flows through
+        # ``BreachedPasswordChecker``; the default factory builds a
+        # process-singleton ``httpx.AsyncClient`` that gets bound to the
+        # first test's event loop and breaks subsequent tests with
+        # "Event loop is closed". Override with a no-op stub that says
+        # "not breached" so existing route-level tests don't need to
+        # mock HIBP — tests that care override the checker themselves.
+        class _NoopBreachedPasswordChecker:
+            async def is_breached(self, password, tenant):
+                return False
+
+        app.dependency_overrides[get_breached_password_checker] = (
+            lambda: _NoopBreachedPasswordChecker()
+        )
         settings.fief_admin_session_cookie_domain = ""
 
         async with asgi_lifespan.LifespanManager(app):

@@ -22,6 +22,7 @@ from fief.dependencies.pagination import (
 )
 from fief.dependencies.repositories import get_repository
 from fief.dependencies.request import get_request_json
+from fief.dependencies.security import get_breached_password_checker
 from fief.dependencies.tasks import get_send_task
 from fief.dependencies.tenant import (
     get_current_tenant,
@@ -53,6 +54,7 @@ from fief.repositories import (
 )
 from fief.schemas.user import UF, UserCreateAdmin, UserUpdate, UserUpdateAdmin
 from fief.services.acr import ACR
+from fief.services.security.breached_passwords import BreachedPasswordChecker
 from fief.services.user_manager import UserManager
 from fief.services.user_roles import UserRolesService
 from fief.tasks import SendTask
@@ -68,6 +70,9 @@ async def get_user_manager(
     audit_logger: AuditLogger = Depends(get_audit_logger),
     trigger_webhooks: TriggerWebhooks = Depends(get_trigger_webhooks),
     user_roles: UserRolesService = Depends(get_user_roles_service),
+    breached_password_checker: BreachedPasswordChecker = Depends(
+        get_breached_password_checker
+    ),
 ):
     return UserManager(
         password_helper=password_helper,
@@ -78,6 +83,7 @@ async def get_user_manager(
         audit_logger=audit_logger,
         trigger_webhooks=trigger_webhooks,
         user_roles=user_roles,
+        breached_password_checker=breached_password_checker,
     )
 
 

@@ -245,7 +245,9 @@ async def update_password(
             form.new_password.errors.append(message)
             return await form_helper.get_error_response(message, "passwords_dont_match")
 
-        user = await user_manager.set_user_attributes(user, password=new_password)
+        user = await user_manager.set_user_attributes(
+            user, password=new_password, tenant=context["tenant"]
+        )
         await user_manager.user_repository.update(user)
 
         form_helper.context["success"] = _(

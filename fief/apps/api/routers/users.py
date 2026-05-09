@@ -146,7 +146,9 @@ async def update_user(
     audit_logger: AuditLogger = Depends(get_audit_logger),
 ):
     try:
-        user = await user_manager.update(user_update, user, request=request)
+        user = await user_manager.update(
+            user_update, user, tenant=user.tenant, request=request
+        )
         audit_logger.log_object_write(AuditLogMessage.OBJECT_UPDATED, user)
     except UserAlreadyExistsError as e:
         raise HTTPException(

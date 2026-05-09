@@ -10,6 +10,7 @@ from fief import schemas
 from fief.crypto.password import PasswordHelper
 from fief.crypto.verify_code import generate_verify_code, get_verify_code_hash
 from fief.dependencies.webhooks import TriggerWebhooks
+from fief.locale import gettext_lazy as _
 from fief.logger import AuditLogger
 from fief.models import (
     AuditLogMessage,
@@ -25,6 +26,7 @@ from fief.repositories import (
     UserRepository,
 )
 from fief.services.password import PasswordValidation
+from fief.services.security.breached_passwords import BreachedPasswordChecker
 from fief.services.user_roles import UserRolesService
 from fief.services.webhooks.models import (
     UserCreated,
@@ -73,6 +75,16 @@ class InvalidPasswordError(UserManagerError):
         self.messages = messages
 
 
+class BreachedPasswordError(InvalidPasswordError):
+    """Password rejected because it appears in the HIBP breach corpus.
+
+    Subclass of :class:`InvalidPasswordError` so existing
+    ``except InvalidPasswordError`` handlers keep working unchanged. New
+    handlers that want to surface a distinct error code (e.g.
+    ``password_breached``) can branch on the subclass.
+    """
+
+
 class UserManager:
     def __init__(
         self,
@@ -85,6 +97,7 @@ class UserManager:
         audit_logger: AuditLogger,
         trigger_webhooks: TriggerWebhooks,
         user_roles: UserRolesService,
+        breached_password_checker: BreachedPasswordChecker,
     ):
         self.password_helper = password_helper
         self.user_repository = user_repository
@@ -94,6 +107,7 @@ class UserManager:
         self.audit_logger = audit_logger
         self.trigger_webhooks = trigger_webhooks
         self.user_roles = user_roles
+        self.breached_password_checker = breached_password_checker
 
     async def get(self, id: UUID4, tenant: UUID4) -> User:
         user = await self.user_repository.get_by_id_and_tenant(id, tenant)
@@ -266,7 +280,7 @@ class UserManager:
         if not user.is_active:
             raise UserInactiveError()
 
-        user = await self.set_user_attributes(user, password=password)
+        user = await self.set_user_attributes(user, password=password, tenant=tenant)
         await self.user_repository.update(user)
 
         await self.on_after_reset_password(user, request=request)
@@ -278,10 +292,13 @@ class UserManager:
         user_update: schemas.user.UserUpdate[schemas.user.UF],
         user: User,
         *,
+        tenant: Tenant | None = None,
         request: Request | None = None,
     ) -> User:
         user = await self.set_user_attributes(
-            user, **user_update.model_dump(exclude_unset=True, exclude={"fields"})
+            user,
+            **user_update.model_dump(exclude_unset=True, exclude={"fields"}),
+            tenant=tenant,
         )
 
         if user_update.fields is not None:
@@ -418,7 +435,10 @@ class UserManager:
         return user
 
     async def validate_password(
-        self, password: str, user: schemas.user.UserCreate | User
+        self,
+        password: str,
+        user: schemas.user.UserCreate | User,
+        tenant: Tenant | None = None,
     ) -> None:
         password_validation = PasswordValidation.validate(
             password,
@@ -428,12 +448,34 @@ class UserManager:
         if not password_validation.valid:
             raise InvalidPasswordError(password_validation.messages)
 
+        # SEC-2: HIBP k-anonymity check, layered AFTER zxcvbn so weak
+        # passwords short-circuit before we waste a network round-trip.
+        # Fail-OPEN paths inside the checker return False so password
+        # changes never break when HIBP is unavailable.
+        if await self.breached_password_checker.is_breached(password, tenant):
+            self.audit_logger(
+                AuditLogMessage.USER_PASSWORD_BREACHED_REJECTED,
+                subject_user_id=user.id if hasattr(user, "id") else None,
+                extra={
+                    "tenant_id": str(tenant.id) if tenant is not None else None
+                },
+            )
+            raise BreachedPasswordError(
+                [
+                    _(
+                        "This password has appeared in a known data breach. "
+                        "Please pick another."
+                    )
+                ]
+            )
+
     async def set_user_attributes(
         self,
         user: User,
         *,
         email: str | None = None,
         password: str | None = None,
+        tenant: Tenant | None = None,
         **kwargs,
     ) -> User:
         if email is not None and user.email != email:
@@ -444,7 +486,7 @@ class UserManager:
                 user.email = email
 
         if password is not None:
-            await self.validate_password(password, user)
+            await self.validate_password(password, user, tenant=tenant)
             user.hashed_password = self.password_helper.hash(password)
 
         for field, value in kwargs.items():

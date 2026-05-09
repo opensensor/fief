@@ -5,6 +5,11 @@ from fief.crypto.token import get_token_hash
 from fief.db import AsyncEngine, AsyncSession
 from fief.db.main import create_main_async_session_maker
 from fief.dependencies.logger import get_audit_logger
+from fief.dependencies.redis import get_redis
+from fief.dependencies.security import (
+    get_breached_password_checker,
+    get_http_client,
+)
 from fief.dependencies.users import get_user_manager
 from fief.models import AdminAPIKey, Client, Permission, Role, Tenant, Theme, User
 from fief.repositories import (
@@ -91,6 +96,11 @@ class Initializer:
                 trigger_webhooks_partial,
                 send_task,
             )
+            breached_password_checker = await get_breached_password_checker(
+                get_redis(),
+                get_http_client(),
+                audit_logger,
+            )
             user_manager = await get_user_manager(
                 user_repository,
                 email_verification_repository,
@@ -99,6 +109,7 @@ class Initializer:
                 audit_logger,
                 trigger_webhooks_partial,
                 user_roles_service,
+                breached_password_checker,
             )
 
             if password is None:
