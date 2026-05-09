@@ -358,9 +358,11 @@ Wave 9 (Rollout)
 - **location:** `fief/templates/auth/dashboard/security/recovery_codes.html` (new)
 - **description:** Two-column grid of the 10 codes, monospaced. Buttons: "Download .txt", "Copy all", "Print". Strongly-worded warning: "These codes are shown only once. Store them in a safe place." Reload of the page does NOT re-display the codes (server doesn't store plaintext).
 - **validation:** Cmd-P prints cleanly; download produces `recovery-codes-{slug}.txt` where `slug` is `slugify(brand.name) if brand else slugify(tenant.name)` — slugify via Python `re.sub(r"[^a-z0-9]+", "-", name.lower())` template filter (add to `fief/services/templates.py` if not already present).
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: Implemented `auth/dashboard/security/recovery_codes.html` extending the modernized dashboard layout. Renders the 10 codes in a 2-col monospaced grid; exposes Copy all (Clipboard API + textarea fallback with check-mark animation), Download .txt (data: URI built with Jinja's built-in `urlencode` filter, filename `recovery-codes-{slug}.txt` where `slug` is the lower-hyphenated brand-or-tenant name — chose the inline-Jinja slug approach over a Python filter since the T19 template-only boundary precluded touching `fief/templates.py`), and Print (window.print + scoped `@media print` CSS hiding nav/aside/footer/callouts). Includes the amber callout warning about losing codes plus the reload-won't-re-show note, and a "Done" link back to `auth.dashboard:mfa_index`. `reason_not_testable: pure HTML/Tailwind/JS template; verified by Jinja parse and visual review.` Jinja parse: `parsed`.
 - **files edited/created:**
+  - `fief/templates/auth/dashboard/security/recovery_codes.html` (new)
 
 ### T20: Audit log call sites
 - **depends_on:** [T3, T13, T14, T15, T16]
