@@ -1,0 +1,267 @@
+{% extends "auth/dashboard/layout.html" %}
+
+{% block head_title_content %}{{ _("Passkeys") }}{% endblock %}
+
+{# MFA-2 T10: /security/passkeys page.
+   Renders one row per `UserWebAuthnCredential` returned by
+   `WebAuthnService.list_for_user(user)` (route: `auth.dashboard:passkeys_index`).
+   Three states are handled:
+     1. Empty:  `credentials | length == 0` — friendly invitation card.
+     2. List:   one row per credential with rename + remove actions.
+   The "Add a passkey" CTA imports `/static/webauthn.bundle.js` (T8 bundle,
+   exposed as `window.fiefWebauthn`) and calls `registerPasskey(beginUrl, finishUrl)`.
+#}
+
+{% block content %}
+<div class="space-y-6">
+  {# Header — gradient icon tile + heading + Add CTA #}
+  <header class="flex items-start gap-3">
+    <div class="hidden sm:flex h-10 w-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 items-center justify-center shadow-md shrink-0">
+      {# Key-on-shield glyph #}
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-white">
+        <path fill-rule="evenodd" d="M12 1.5a.75.75 0 01.5.19l8.25 7.5a.75.75 0 01.25.56v9a3 3 0 01-3 3H6a3 3 0 01-3-3v-9a.75.75 0 01.25-.56l8.25-7.5a.75.75 0 01.5-.19zM15.75 9.75a3 3 0 00-2.916 3.708.75.75 0 01-.214.71L10 16.84a.75.75 0 00-.22.53v1.13c0 .414.336.75.75.75h1.13c.2 0 .39-.079.53-.22l.4-.4a.75.75 0 00.22-.53v-.4h.4c.2 0 .39-.079.53-.22l.5-.5a.75.75 0 00.22-.53v-.5h.5c.2 0 .39-.079.53-.22l.547-.546a.75.75 0 01.71-.214 3 3 0 10-.997-5.83zM18 11.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" clip-rule="evenodd" />
+      </svg>
+    </div>
+    <div class="flex-1 min-w-0">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h2 class="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">{{ _("Passkeys") }}</h2>
+          <p class="text-sm text-slate-500 mt-0.5">{{ _("Use your fingerprint, face, or a security key to sign in without typing a code.") }}</p>
+        </div>
+
+        {% if credentials | length > 0 %}
+          <button
+            type="button"
+            id="add-passkey-btn"
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 shadow-md hover:shadow-lg transition-all"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+              <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"/>
+            </svg>
+            {{ _("Add a passkey") }}
+          </button>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  {# Inline flash for register errors (toggled by the inline script). #}
+  <div
+    id="passkey-flash"
+    role="alert"
+    class="hidden rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2 text-sm text-rose-800"
+  >
+    {{ _("Something went wrong — please try again.") }}
+  </div>
+
+  {% if credentials | length == 0 %}
+    {# Empty state — invitation card with primary CTA. #}
+    <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-6 sm:p-8 shadow-sm text-center">
+      <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-emerald-500 shadow-md">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 text-white">
+          <path fill-rule="evenodd" d="M15.75 1.5a6.75 6.75 0 00-6.651 7.906c.067.39-.032.717-.221.906l-6.5 6.499a3 3 0 00-.878 2.121v2.818c0 .414.336.75.75.75H6a.75.75 0 00.75-.75v-1.5h1.5A.75.75 0 009 19.5V18h1.5a.75.75 0 00.53-.22l2.658-2.658c.19-.189.517-.288.906-.22A6.75 6.75 0 1015.75 1.5zm0 3a.75.75 0 000 1.5A2.25 2.25 0 0118 8.25a.75.75 0 001.5 0 3.75 3.75 0 00-3.75-3.75z" clip-rule="evenodd" />
+        </svg>
+      </div>
+      <h3 class="mt-3 text-base font-semibold text-slate-800">{{ _("No passkeys yet") }}</h3>
+      <p class="mt-1 text-sm text-slate-500">{{ _("You haven't set up any passkeys yet. Add one to sign in without a code.") }}</p>
+      <div class="mt-4 flex justify-center">
+        <button
+          type="button"
+          id="add-passkey-btn-empty"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 shadow-md hover:shadow-lg transition-all"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+            <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"/>
+          </svg>
+          {{ _("Add a passkey") }}
+        </button>
+      </div>
+    </section>
+  {% else %}
+    {# Credential list — glass card with one row per credential. #}
+    <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-2 sm:p-3 shadow-sm">
+      <ul role="list" class="divide-y divide-slate-200/60">
+        {% for credential in credentials %}
+          <li
+            id="passkey-row-{{ credential.id }}"
+            class="flex items-start gap-3 sm:gap-4 px-3 sm:px-4 py-4"
+            data-credential-id="{{ credential.id }}"
+          >
+            {# Passkey icon #}
+            <div class="hidden sm:flex h-10 w-10 rounded-lg bg-gradient-to-br from-teal-500 to-emerald-500 items-center justify-center shadow-sm shrink-0 text-white">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
+                <path fill-rule="evenodd" d="M15.75 1.5a6.75 6.75 0 00-6.651 7.906c.067.39-.032.717-.221.906l-6.5 6.499a3 3 0 00-.878 2.121v2.818c0 .414.336.75.75.75H6a.75.75 0 00.75-.75v-1.5h1.5A.75.75 0 009 19.5V18h1.5a.75.75 0 00.53-.22l2.658-2.658c.19-.189.517-.288.906-.22A6.75 6.75 0 1015.75 1.5zm0 3a.75.75 0 000 1.5A2.25 2.25 0 0118 8.25a.75.75 0 001.5 0 3.75 3.75 0 00-3.75-3.75z" clip-rule="evenodd" />
+              </svg>
+            </div>
+
+            <div class="flex-1 min-w-0">
+              {# Display label + inline rename input (toggled by JS). #}
+              <div class="flex flex-wrap items-center gap-2 js-passkey-display">
+                <h3 class="text-sm sm:text-base font-semibold text-slate-800 truncate js-passkey-label">{{ credential.label or _("Passkey") }}</h3>
+                <button
+                  type="button"
+                  class="js-passkey-rename-toggle inline-flex items-center justify-center w-6 h-6 rounded text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
+                  aria-label="{{ _('Rename passkey') }}"
+                  title="{{ _('Rename') }}"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                    <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"/>
+                  </svg>
+                </button>
+              </div>
+
+              {# Hidden inline-rename form, revealed when the pencil is clicked. #}
+              <form
+                class="js-passkey-rename-form hidden mt-1 flex flex-wrap items-center gap-2"
+                data-credential-id="{{ credential.id }}"
+                data-rename-url="{{ tenant.url_path_for(request, 'auth.dashboard:passkeys_rename', credential_id=credential.id) }}"
+              >
+                <input
+                  type="text"
+                  name="label"
+                  value="{{ credential.label or '' }}"
+                  maxlength="64"
+                  placeholder="{{ _('e.g. MacBook Touch ID') }}"
+                  class="js-passkey-rename-input flex-1 min-w-0 px-2 py-1 text-sm rounded border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                />
+                <button
+                  type="submit"
+                  class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 shadow-sm transition-colors"
+                >
+                  {{ _("Save") }}
+                </button>
+                <button
+                  type="button"
+                  class="js-passkey-rename-cancel inline-flex items-center px-2.5 py-1 rounded text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                >
+                  {{ _("Cancel") }}
+                </button>
+              </form>
+
+              <p class="text-xs sm:text-sm text-slate-500 mt-1">
+                <span>{{ _("Added") }} {{ credential.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+                <span class="text-slate-300 mx-1">·</span>
+                {% if credential.last_used_at %}
+                  <span>{{ _("Last used") }} {{ credential.last_used_at.strftime("%Y-%m-%d %H:%M") }}</span>
+                {% else %}
+                  <span class="text-slate-400">{{ _("Never used") }}</span>
+                {% endif %}
+              </p>
+            </div>
+
+            {# Right: Remove button. #}
+            <div class="shrink-0 self-center">
+              <button
+                type="button"
+                hx-delete="{{ tenant.url_path_for(request, 'auth.dashboard:passkeys_delete', credential_id=credential.id) }}"
+                hx-confirm="{{ _('Remove this passkey? You will not be able to sign in with it again.') }}"
+                hx-swap="none"
+                hx-on::after-request="if (event.detail.successful) { window.location.reload(); }"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-rose-700 bg-white border border-rose-200 hover:border-rose-400 hover:bg-rose-50 shadow-sm transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                  <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd" />
+                </svg>
+                {{ _("Remove") }}
+              </button>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {# Bottom note — explains brand-scoping. #}
+  <div class="space-y-1.5 px-1">
+    <p class="text-xs text-slate-500 flex items-start gap-1.5">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0">
+        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />
+      </svg>
+      <span>{{ _("Passkeys are stored on your device or in your password manager. They work only on this site") }} (<span class="font-mono">{{ (brand.host if brand and brand.host else tenant.name) }}</span>).</span>
+    </p>
+  </div>
+</div>
+
+{# WebAuthn registration glue. The bundle exposes `window.fiefWebauthn` (rollup
+   IIFE in T8). On click: call `registerPasskey(beginUrl, finishUrl)`, then
+   reload on success or flash an error message on failure. #}
+<script type="module">
+  import "{{ url_for('static', path='/webauthn.bundle.js') }}";
+
+  const beginUrl  = "{{ tenant.url_path_for(request, 'auth.dashboard:passkeys_register_begin') }}";
+  const finishUrl = "{{ tenant.url_path_for(request, 'auth.dashboard:passkeys_register_finish') }}";
+  const flashEl   = document.getElementById("passkey-flash");
+
+  async function onAddPasskey(evt) {
+    const btn = evt.currentTarget;
+    btn.disabled = true;
+    if (flashEl) flashEl.classList.add("hidden");
+    try {
+      if (!window.fiefWebauthn || typeof window.fiefWebauthn.registerPasskey !== "function") {
+        throw new Error("webauthn bundle not loaded");
+      }
+      await window.fiefWebauthn.registerPasskey(beginUrl, finishUrl);
+      window.location.reload();
+    } catch (err) {
+      console.error("passkey registration failed", err);
+      if (flashEl) flashEl.classList.remove("hidden");
+      btn.disabled = false;
+    }
+  }
+
+  for (const id of ["add-passkey-btn", "add-passkey-btn-empty"]) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", onAddPasskey);
+  }
+
+  // Inline rename: pencil reveals the form; cancel hides it; submit PATCHes JSON.
+  for (const row of document.querySelectorAll("[data-credential-id]")) {
+    const display = row.querySelector(".js-passkey-display");
+    const form    = row.querySelector(".js-passkey-rename-form");
+    const toggle  = row.querySelector(".js-passkey-rename-toggle");
+    const cancel  = row.querySelector(".js-passkey-rename-cancel");
+    const input   = row.querySelector(".js-passkey-rename-input");
+    const labelEl = row.querySelector(".js-passkey-label");
+    if (!form || !toggle) continue;
+
+    toggle.addEventListener("click", () => {
+      display.classList.add("hidden");
+      form.classList.remove("hidden");
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    });
+
+    if (cancel) {
+      cancel.addEventListener("click", () => {
+        form.classList.add("hidden");
+        display.classList.remove("hidden");
+      });
+    }
+
+    form.addEventListener("submit", async (evt) => {
+      evt.preventDefault();
+      const url = form.dataset.renameUrl;
+      const label = (input && input.value || "").trim();
+      try {
+        const resp = await fetch(url, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label }),
+        });
+        if (!resp.ok) throw new Error("rename failed: " + resp.status);
+        if (labelEl) {
+          labelEl.textContent = label || "{{ _('Passkey') }}";
+        }
+        form.classList.add("hidden");
+        display.classList.remove("hidden");
+      } catch (err) {
+        console.error("passkey rename failed", err);
+        if (flashEl) flashEl.classList.remove("hidden");
+      }
+    });
+  }
+</script>
+{% endblock %}
