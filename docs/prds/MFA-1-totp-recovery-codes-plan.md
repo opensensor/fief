@@ -96,9 +96,14 @@ Wave 9 (Rollout)
 - **location:** `fief/services/security/encryption.py` (new), `fief/services/security/__init__.py` (new)
 - **description:** Module exposing `encrypt(secret: str) -> bytes` and `decrypt(blob: bytes) -> str`, backed by `cryptography.fernet.MultiFernet`. Reads keys from `settings.mfa_secret_encryption_key` (single key) or `settings.mfa_secret_encryption_keys` (list, current key first — supports rotation). Raises a typed `MfaSecretDecryptionError` on failure so callers can return a generic 500 without leaking detail.
 - **validation:** Round-trip unit test in T24 passes; encrypted output is bytes (not str); two consecutive `encrypt()` calls of the same plaintext yield distinct ciphertexts.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09: Implemented `encrypt`/`decrypt` backed by `cryptography.fernet.MultiFernet`, with a lazy `getattr`-based settings accessor so the module loads cleanly before T4 wires the matching settings fields. `MfaSecretDecryptionError` wraps `InvalidToken`; missing-config calls raise `RuntimeError("MFA encryption key not configured")`. Smoke tests in `tests/services/test_encryption_smoke.py` cover round-trip, distinct-ciphertext, tampered-ciphertext rejection, and missing-key guard — full coverage suite remains owned by T24.
 - **files edited/created:**
+  - `fief/services/security/__init__.py` (new)
+  - `fief/services/security/encryption.py` (new)
+  - `tests/services/__init__.py` (new)
+  - `tests/services/test_encryption_smoke.py` (new)
 
 ### T3: Audit-log enum additions
 - **depends_on:** []
