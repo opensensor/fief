@@ -385,9 +385,16 @@ Wave 9 (Rollout)
 - **location:** `fief/apps/api/routers/users.py`
 - **description:** New `POST /api/users/{id}/mfa/reset` (admin-only) — wipes the user's TOTP secret + recovery codes, sets `mfa_enabled=false`. Pairs with the existing admin password-reset capability for support workflows. Audit-logged via T20.
 - **validation:** API integration test using existing admin auth fixtures; non-admin gets 403.
-- **status:** Not Completed
+- **status:** Completed
 - **log:**
+  - 2026-05-09 — Added `POST /users/{id}/mfa/reset` (`name="users:force_reenroll_mfa"`) to the existing admin API router (already wrapped in `Depends(is_authenticated_admin_api)` via the router-level dependency, so unauthenticated requests get 401 from the standard fixture). The handler resolves the user via `get_user_by_id_or_404` (404 on unknown id), calls `await totp_service.disable(user)` (idempotent — safe even when `mfa_enabled` is already `False`; the service emits `USER_MFA_DISABLED` and clears the secret + recovery codes + flag), then emits `USER_MFA_FORCE_REENROLLED` with `extra={"admin_user_id": str(audit_logger.admin_user_id) or None}` so support audits can distinguish admin-initiated resets from user-initiated disables. Returns `204 No Content` (matches the project convention used by `delete_user` etc.).
+  - TDD: `tests/apps/api/routers/test_users_mfa_reset.py` covers (a) unauthenticated → 401 via parametrized `unauthorized_api_assertions`, (b) unknown user id → 404, (c) enrolled user → 204, `mfa_enabled` flips to False (verified by re-querying via `UserRepository(main_session)`), and both `USER_MFA_DISABLED` AND `USER_MFA_FORCE_REENROLLED` are emitted (the force-reenroll call is asserted to carry `subject_user_id=user.id` and `extra` with `admin_user_id`), (d) idempotent path: already-disabled user still returns 204 and still records the `USER_MFA_FORCE_REENROLLED` audit entry. Audit logger is captured via `MagicMock(spec=AuditLogger, wraps=AuditLogger(loguru_logger))` plumbed in through `api_app.dependency_overrides[get_audit_logger]`. The override fixture explicitly depends on `test_client_api` so it runs *after* `test_client_generator` resets `app.dependency_overrides = {}` (otherwise the override would be wiped before the request reaches the route).
+  - `.venv/bin/python -m pytest tests/apps/api/routers/test_users_mfa_reset.py --no-cov` → **4 passed**.
+  - Pre-existing unrelated failure in `tests/test_apps_api_users.py::TestCreateUser::test_valid` confirmed present before this change (verified via `git stash`); not addressed here.
 - **files edited/created:**
+  - `fief/apps/api/routers/users.py` (modified — new route + imports for `TotpService` / `get_totp_service`)
+  - `tests/apps/api/routers/test_users_mfa_reset.py` (new)
+  - `tests/apps/api/__init__.py`, `tests/apps/api/routers/__init__.py` (new package markers)
 
 ### T22: Notification email on enroll/disable (deferable)
 - **depends_on:** [T13]

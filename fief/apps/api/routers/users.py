@@ -45,7 +45,9 @@ from fief.repositories import (
     UserRepository,
 )
 from fief.schemas.generics import PaginatedResults
+from fief.dependencies.security import get_totp_service
 from fief.services.acr import ACR
+from fief.services.security.totp import TotpService
 from fief.services.user_manager import (
     InvalidPasswordError,
     UserAlreadyExistsError,
@@ -175,6 +177,44 @@ async def delete_user(
     await repository.delete(user)
     audit_logger.log_object_write(AuditLogMessage.OBJECT_DELETED, user)
     trigger_webhooks(UserDeleted, user, schemas.user.UserRead)
+
+
+@router.post(
+    "/{id:uuid}/mfa/reset",
+    name="users:force_reenroll_mfa",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def force_reenroll_mfa(
+    user: User = Depends(get_user_by_id_or_404),
+    totp_service: TotpService = Depends(get_totp_service),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> None:
+    """Force a user to re-enroll TOTP and recovery codes.
+
+    Wipes the user's TOTP secret and recovery codes via
+    :meth:`TotpService.disable` (which also flips ``users.mfa_enabled``
+    to ``False`` and emits :data:`AuditLogMessage.USER_MFA_DISABLED`),
+    then emits a separate :data:`AuditLogMessage.USER_MFA_FORCE_REENROLLED`
+    so the audit trail clearly distinguishes admin-initiated resets from
+    user-initiated disables.
+
+    The operation is idempotent: calling it on a user whose MFA is
+    already disabled still returns 204.
+    """
+
+    await totp_service.disable(user)
+    audit_logger(
+        AuditLogMessage.USER_MFA_FORCE_REENROLLED,
+        subject_user_id=user.id,
+        extra={
+            "admin_user_id": (
+                str(audit_logger.admin_user_id)
+                if audit_logger.admin_user_id is not None
+                else None
+            ),
+        },
+    )
 
 
 @router.get(
