@@ -8,6 +8,7 @@ class TenantCreate(BaseModel):
     name: str
     registration_allowed: bool = True
     mfa_required: bool = False
+    breached_password_threshold: int | None = None
     theme_id: UUID4 | None = None
     logo_url: HttpUrl | None = None
     application_url: HttpUrl | None = None
@@ -18,6 +19,7 @@ class TenantUpdate(BaseModel):
     name: str | None = None
     registration_allowed: bool | None = None
     mfa_required: bool | None = None
+    breached_password_threshold: int | None = None
     theme_id: UUID4 | None = None
     logo_url: HttpUrl | None = None
     application_url: HttpUrl | None = None
@@ -30,6 +32,7 @@ class BaseTenant(UUIDSchema, CreatedUpdatedAt):
     slug: str
     registration_allowed: bool
     mfa_required: bool
+    breached_password_threshold: int | None = None
     theme_id: UUID4 | None = None
     logo_url: HttpUrl | None = None
     application_url: HttpUrl | None = None

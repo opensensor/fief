@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import Request
 from jwcrypto import jwk
 from pydantic import UUID4
-from sqlalchemy import Boolean, Column, ForeignKey, String, Table, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from starlette.datastructures import URL, URLPath
 from starlette.routing import Router
@@ -48,6 +48,9 @@ class Tenant(UUIDModel, CreatedUpdatedAt, Base):
     )
     mfa_required: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
+    )
+    breached_password_threshold: Mapped[int | None] = mapped_column(
+        Integer, default=None, nullable=True
     )
 
     application_url: Mapped[str | None] = mapped_column(
