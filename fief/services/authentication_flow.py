@@ -1,8 +1,8 @@
 import urllib.parse
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypeVar
 
-from fastapi import Response, status
+from fastapi import Request, Response, status
 from fastapi.responses import RedirectResponse
 from furl import furl
 from pydantic import UUID4
@@ -10,6 +10,7 @@ from pydantic import UUID4
 from fief.crypto.access_token import generate_access_token
 from fief.crypto.id_token import generate_id_token, get_validation_hash
 from fief.crypto.token import generate_token
+from fief.dependencies.client_ip import get_client_ip_info
 from fief.dependencies.permission import UserPermissionsGetter
 from fief.models import (
     AuthorizationCode,
@@ -100,11 +101,29 @@ class AuthenticationFlow:
         return response
 
     async def create_session_token(
-        self, response: ResponseType, user_id: UUID4
+        self,
+        response: ResponseType,
+        user_id: UUID4,
+        request: Request,
     ) -> ResponseType:
         token, token_hash = generate_token()
+        # UX-1 T8: capture device-annotation metadata at creation time so the
+        # row starts coherent. We use the SEC-1 client-IP helper (T7) to
+        # honour ``X-Forwarded-For`` resolution, and seed ``last_seen_*`` to
+        # the same values so the device-list view never has to special-case
+        # a never-touched row.
+        created_ip = get_client_ip_info(request).raw
+        created_user_agent = request.headers.get("user-agent")
+        now = datetime.now(UTC)
         await self.session_token_repository.create(
-            SessionToken(token=token_hash, user_id=user_id)
+            SessionToken(
+                token=token_hash,
+                user_id=user_id,
+                created_ip=created_ip,
+                created_user_agent=created_user_agent,
+                last_seen_at=now,
+                last_seen_ip=created_ip,
+            )
         )
         response.set_cookie(
             settings.session_cookie_name,
@@ -121,18 +140,20 @@ class AuthenticationFlow:
         self,
         response: ResponseType,
         user_id: UUID4,
+        request: Request,
         *,
         session_token: SessionToken | None,
     ) -> ResponseType:
         if session_token is not None:
             await self.session_token_repository.delete(session_token)
-        return await self.create_session_token(response, user_id)
+        return await self.create_session_token(response, user_id, request)
 
     async def complete_login_after_mfa(
         self,
         response: ResponseType,
         login_session: LoginSession,
         user: User,
+        request: Request,
         *,
         session_token: SessionToken | None,
     ) -> ResponseType:
@@ -144,7 +165,7 @@ class AuthenticationFlow:
         a subsequent /login POST starts clean.
         """
         response = await self.rotate_session_token(
-            response, user.id, session_token=session_token
+            response, user.id, request, session_token=session_token
         )
         login_session.mfa_pending_user_id = None
         login_session.mfa_attempts_count = 0

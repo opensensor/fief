@@ -416,7 +416,7 @@ async def login(
                 status_code=status.HTTP_302_FOUND,
             )
             response = await authentication_flow.rotate_session_token(
-                response, user.id, session_token=session_token
+                response, user.id, request, session_token=session_token
             )
             response = await authentication_flow.set_login_hint(
                 response, str(user.email)
@@ -452,7 +452,7 @@ async def login(
             status_code=status.HTTP_302_FOUND,
         )
         response = await authentication_flow.rotate_session_token(
-            response, user.id, session_token=session_token
+            response, user.id, request, session_token=session_token
         )
         response = await authentication_flow.set_login_hint(response, str(user.email))
 
@@ -829,6 +829,7 @@ async def mfa_totp(
             response,
             login_session,
             user,
+            request,
             session_token=session_token,
         )
         audit_logger(
@@ -990,6 +991,7 @@ async def mfa_recover(
             response,
             login_session,
             user,
+            request,
             session_token=session_token,
         )
         # ``recovery_code_service.consume`` already audit-logged

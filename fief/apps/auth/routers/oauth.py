@@ -162,7 +162,7 @@ async def callback(
                     status_code=status.HTTP_302_FOUND,
                 )
             response = await authentication_flow.rotate_session_token(
-                response, user.id, session_token=session_token
+                response, user.id, request, session_token=session_token
             )
             response = await authentication_flow.set_login_hint(
                 response, str(oauth_provider.id)

@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 from fastapi import Cookie, Depends, HTTPException, Request, status
 
 from fief.crypto.token import get_token_hash
+from fief.dependencies.client_ip import ClientIpInfo, get_client_ip_info
 from fief.dependencies.repositories import get_repository
 from fief.dependencies.tenant import get_current_tenant
 from fief.models import SessionToken, Tenant, User
@@ -9,14 +12,27 @@ from fief.settings import settings
 
 
 async def get_session_token(
+    request: Request,
     token: str | None = Cookie(None, alias=settings.session_cookie_name),
     repository: SessionTokenRepository = Depends(
         get_repository(SessionTokenRepository)
     ),
+    ip_info: ClientIpInfo = Depends(get_client_ip_info),
 ) -> SessionToken | None:
     if token is not None:
         token_hash = get_token_hash(token)
-        return await repository.get_by_token(token_hash)
+        session_token = await repository.get_by_token(token_hash)
+        if session_token is not None:
+            # UX-1 T8: stamp ``last_seen_at`` / ``last_seen_ip`` on every
+            # protected dashboard request. One tiny UPDATE; we deliberately
+            # do not refresh ``created_user_agent`` — that field is the
+            # device's identity, not the request envelope.
+            await repository.touch_last_seen(
+                session_token.id,
+                last_seen_at=datetime.now(UTC),
+                last_seen_ip=ip_info.raw,
+            )
+        return session_token
     return None
 
 

@@ -192,7 +192,9 @@ async def register(
                 tenant.url_path_for(request, "auth:verify_email_request"),
                 status_code=status.HTTP_302_FOUND,
             )
-            response = await authentication_flow.create_session_token(response, user.id)
+            response = await authentication_flow.create_session_token(
+                response, user.id, request
+            )
             response = await registration_flow.set_login_hint(
                 response, registration_session
             )

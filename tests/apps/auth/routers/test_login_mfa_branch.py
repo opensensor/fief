@@ -22,6 +22,7 @@ import httpx
 import pytest
 from fastapi import status
 from fastapi.responses import RedirectResponse
+from starlette.requests import Request
 
 from fief.crypto.token import get_token_hash
 from fief.db import AsyncSession
@@ -213,8 +214,18 @@ class TestCompleteLoginAfterMFA:
         )
 
         response = RedirectResponse("/", status_code=status.HTTP_302_FOUND)
+        # UX-1 T8: ``complete_login_after_mfa`` now requires the originating
+        # ``Request`` so it can stamp device-annotation columns on the new
+        # SessionToken via ``create_session_token``.
+        request = Request(
+            {
+                "type": "http",
+                "headers": [(b"user-agent", b"pytest")],
+                "client": ("127.0.0.1", 0),
+            }
+        )
         response = await flow.complete_login_after_mfa(
-            response, login_session, user, session_token=None
+            response, login_session, user, request, session_token=None
         )
 
         # Session cookie was set by rotate_session_token via create_session_token.
