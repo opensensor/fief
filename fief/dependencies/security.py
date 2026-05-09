@@ -9,6 +9,7 @@ them via :func:`fastapi.Depends`; tests can override them through
 
 from __future__ import annotations
 
+import httpx
 import redis.asyncio
 from fastapi import HTTPException, Request, status
 from fastapi import Depends
@@ -25,13 +26,18 @@ from fief.repositories import (
     UserTotpSecretRepository,
 )
 from fief.services.security.account_lockout import AccountLockoutService
+from fief.services.security.breached_passwords import BreachedPasswordChecker
 from fief.services.security.rate_limiter import RateLimiter
 from fief.services.security.recovery_codes import RecoveryCodeService
 from fief.services.security.totp import TotpService
+from fief.settings import settings
 
 __all__ = [
+    "close_http_client",
     "enforce_tenant_mfa_required",
     "get_account_lockout_service",
+    "get_breached_password_checker",
+    "get_http_client",
     "get_rate_limiter",
     "get_recovery_code_service",
     "get_totp_service",
@@ -93,6 +99,68 @@ async def get_account_lockout_service(
     """
 
     return AccountLockoutService(user_lockout_repo, audit_logger)
+
+
+# ---------------------------------------------------------------------------
+# SEC-2 T6: HIBP breached-password checker
+# ---------------------------------------------------------------------------
+#
+# Process-wide singleton ``httpx.AsyncClient`` so we share a connection
+# pool across requests instead of doing TCP/TLS handshakes per
+# password-set. The lifespan teardown closes it via :func:`close_http_client`.
+
+_http_client: httpx.AsyncClient | None = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Return the shared :class:`httpx.AsyncClient` for outbound HTTP.
+
+    Built lazily on first use; pool is reused across requests so HIBP
+    keep-alive amortises the TLS handshake. Tests can either override
+    this dependency or close + replace the singleton between cases.
+    """
+
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                settings.breached_password_timeout_ms / 1000.0
+            )
+        )
+    return _http_client
+
+
+async def close_http_client() -> None:
+    """Close the shared HTTP client on app shutdown.
+
+    Safe to call when the client was never built (e.g. shutdown after a
+    failed startup). Mirrors :func:`fief.dependencies.redis.close_redis`
+    in style: clear the singleton *before* awaiting close so a
+    concurrent ``get_http_client()`` cannot hand out an in-flight-closing
+    instance.
+    """
+
+    global _http_client
+    if _http_client is None:
+        return
+    client = _http_client
+    _http_client = None
+    await client.aclose()
+
+
+async def get_breached_password_checker(
+    redis_client: redis.asyncio.Redis = Depends(get_redis),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> BreachedPasswordChecker:
+    """Per-request :class:`BreachedPasswordChecker` (SEC-2 T6).
+
+    The service is stateless apart from its three dependency handles, so
+    a fresh instance per request is cheaper than maintaining a service
+    singleton and trivial to override in tests.
+    """
+
+    return BreachedPasswordChecker(redis_client, http_client, audit_logger)
 
 
 # ---------------------------------------------------------------------------

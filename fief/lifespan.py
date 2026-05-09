@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fief import __version__, tasks
 from fief.db.main import create_main_async_session_maker, create_main_engine
 from fief.dependencies.redis import close_redis
+from fief.dependencies.security import close_http_client
 from fief.logger import init_logger, logger
 from fief.services.posthog import get_server_id
 from fief.settings import settings
@@ -58,5 +59,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[LifespanState, None]:
     # was draining still has Redis available; if the pool was never
     # built (e.g. startup aborted), close_redis() is a no-op.
     await close_redis()
+
+    # SEC-2 T6: close the shared httpx.AsyncClient used by the HIBP
+    # breached-password checker. Mirrors close_redis(): no-op when the
+    # singleton was never built.
+    await close_http_client()
 
     logger.info("Fief Server stopped")
