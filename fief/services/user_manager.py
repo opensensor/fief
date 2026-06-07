@@ -215,6 +215,41 @@ class UserManager:
 
         return user
 
+    async def verify_email_by_code(
+        self,
+        code: str,
+        *,
+        tenant_id: UUID4 | None = None,
+        request: Request | None = None,
+    ) -> User:
+        """Verify an email from a one-click activation link.
+
+        Unlike :meth:`verify_email`, this identifies the user from the code
+        alone (``EmailVerification.code`` is globally unique), so it works
+        without an authenticated session — the code itself, delivered to the
+        address, is the proof of ownership. ``tenant_id``, when provided,
+        scopes the lookup so a code can only verify a user of the current
+        tenant.
+        """
+        code_hash = get_verify_code_hash(code)
+        email_verification = await self.email_verification_repository.get_by_code(
+            code_hash
+        )
+        if email_verification is None or email_verification.is_expired:
+            raise InvalidEmailVerificationCodeError()
+
+        user = email_verification.user
+        if tenant_id is not None and user.tenant_id != tenant_id:
+            raise InvalidEmailVerificationCodeError()
+
+        user.email = email_verification.email
+        user.email_verified = True
+        await self.user_repository.update(user)
+
+        await self.email_verification_repository.delete(email_verification)
+
+        return user
+
     async def forgot_password(
         self, user: User, *, request: Request | None = None
     ) -> None:

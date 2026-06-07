@@ -3,7 +3,7 @@ import contextlib
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from typing import ClassVar
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import dramatiq
 import jinja2
@@ -16,12 +16,14 @@ from fief.db import AsyncSession
 from fief.db.main import get_single_main_async_session
 from fief.logger import logger
 from fief.middlewares.locale import BabelMiddleware, get_babel_middleware_kwargs
-from fief.models import Brand, Tenant, User
+from fief.crypto.verify_code import generate_verify_code
+from fief.models import Brand, EmailVerification, Tenant, User
 from fief.models.generics import BaseModel
 from fief.paths import EMAIL_TEMPLATES_DIRECTORY
 from fief.repositories import (
     BrandRepository,
     EmailTemplateRepository,
+    EmailVerificationRepository,
     TenantRepository,
     UserRepository,
 )
@@ -128,6 +130,46 @@ class TaskBase:
         if brand is None:
             return tenant.get_email_sender()
         return brand.get_email_sender(fallback_tenant=tenant)
+
+    async def _create_email_verification_code(
+        self, user_id: UUID4, email: str
+    ) -> str:
+        """Mint a fresh email-verification row for ``user_id`` and return the
+        plaintext code (the hash is what we store). Replaces any prior pending
+        verification for the user so only the latest link/code is valid."""
+        code, code_hash = generate_verify_code()
+        async with self.get_main_session() as session:
+            repository = EmailVerificationRepository(session)
+            await repository.delete_by_user(user_id)
+            await repository.create(
+                EmailVerification(code=code_hash, email=email, user_id=user_id)
+            )
+        return code
+
+    async def _resolve_auth_base_url(self, brand: Brand | None) -> str | None:
+        """The https origin that serves the Fief auth app for this email's
+        brand (e.g. ``https://members.lightnvr.com``). Falls back to the
+        default brand's host when no brand is in context."""
+        host: str | None = None
+        if brand is not None:
+            host = brand.host
+        else:
+            async with self.get_main_session() as session:
+                default_brand = await BrandRepository(session).get_default()
+                host = default_brand.host if default_brand is not None else None
+        if not host:
+            return None
+        return f"https://{host}"
+
+    def _build_verify_url(
+        self, base_url: str | None, tenant: Tenant, code: str
+    ) -> str | None:
+        """One-click activation link for the sessionless ``auth:verify_email_link``
+        route. Non-default tenants are served under a ``/{slug}`` path prefix."""
+        if base_url is None:
+            return None
+        prefix = "" if tenant.default else f"/{tenant.slug}"
+        return f"{base_url}{prefix}/verify-link?code={quote(code)}"
 
     @contextlib.asynccontextmanager
     async def _get_email_template_renderer(

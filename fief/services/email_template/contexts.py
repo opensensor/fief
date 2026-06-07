@@ -14,6 +14,7 @@ class EmailContext(BaseModel):
     tenant: Tenant
     user: UserEmailContext
     brand: BrandEmailContext | None = None
+    verify_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod

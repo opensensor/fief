@@ -16,6 +16,17 @@ class OnAfterRegisterTask(TaskBase):
         tenant = await self._get_tenant(user.tenant_id)
         brand = await self._get_brand(brand_id)
 
+        # Give unverified users a working one-click activation link in their
+        # welcome email. This is the only transactional email guaranteed to be
+        # sent on every registration path (including API/storefront-created
+        # users that never reach the interactive /verify-request redirect), so
+        # without it those users have no way to activate their account.
+        verify_url = None
+        if not user.email_verified:
+            code = await self._create_email_verification_code(user.id, user.email)
+            base_url = await self._resolve_auth_base_url(brand)
+            verify_url = self._build_verify_url(base_url, tenant, code)
+
         # Send welcome email
         context = WelcomeContext(
             tenant=schemas.tenant.Tenant.model_validate(tenant),
@@ -23,6 +34,7 @@ class OnAfterRegisterTask(TaskBase):
             brand=schemas.brand.BrandEmailContext.model_validate(brand)
             if brand is not None
             else None,
+            verify_url=verify_url,
         )
         async with self._get_email_subject_renderer() as email_subject_renderer:
             subject = await email_subject_renderer.render(

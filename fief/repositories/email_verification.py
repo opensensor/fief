@@ -20,6 +20,10 @@ class EmailVerificationRepository(
         )
         return await self.get_one_or_none(statement)
 
+    async def get_by_code(self, code: str) -> EmailVerification | None:
+        statement = select(EmailVerification).where(EmailVerification.code == code)
+        return await self.get_one_or_none(statement)
+
     async def delete_by_user(self, user: UUID4) -> None:
         statement = delete(EmailVerification).where(EmailVerification.user_id == user)
         await self._execute_statement(statement)

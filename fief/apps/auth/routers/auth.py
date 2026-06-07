@@ -615,6 +615,56 @@ async def verify_email(
     return await form_helper.get_response()
 
 
+@router.get("/verify-link", name="auth:verify_email_link")
+async def verify_email_link(
+    request: Request,
+    code: str = Query(...),
+    user_manager: UserManager = Depends(get_user_manager),
+    tenant: Tenant = Depends(get_current_tenant),
+    ip_info: ClientIpInfo = Depends(get_client_ip_info),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+):
+    """Sessionless one-click email activation. The ``code`` query param is the
+    secret (delivered to the address), so possession proves ownership and no
+    login session is required — this is what makes the link clickable straight
+    from the inbox. On success/failure we bounce to /login with a flag the
+    template can surface."""
+    login_url = tenant.url_path_for(request, "auth:login")
+
+    if settings.rate_limit_enabled:
+        try:
+            await rate_limiter.check(
+                scope="verify_ip",
+                key=ip_info.rate_limit_key,
+                window=RateLimitWindow(settings.rate_limit_verify_per_ip_per_min, 60),
+            )
+        except RateLimitExceeded:
+            audit_logger(
+                AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                extra={
+                    "scope": "verify_ip",
+                    "key_hash": _hash_key(ip_info.rate_limit_key),
+                    "endpoint": "/verify-link",
+                    "client_ip": ip_info.raw,
+                },
+            )
+            return RedirectResponse(login_url, status_code=status.HTTP_302_FOUND)
+
+    try:
+        await user_manager.verify_email_by_code(
+            code, tenant_id=tenant.id, request=request
+        )
+    except InvalidEmailVerificationCodeError:
+        return RedirectResponse(
+            f"{login_url}?verify_error=1", status_code=status.HTTP_302_FOUND
+        )
+
+    return RedirectResponse(
+        f"{login_url}?verified=1", status_code=status.HTTP_302_FOUND
+    )
+
+
 # ---------------------------------------------------------------------------
 # Login-time MFA challenge routes (T14)
 # ---------------------------------------------------------------------------
