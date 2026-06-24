@@ -13,7 +13,18 @@
       {% for scope in scopes %}
         <div class="bg-white shadow-md rounded-sm border border-slate-200">
           <div class="flex flex-col p-5">
-            {{ scope }}
+            <div class="font-medium">{{ scope }}</div>
+            <div class="text-sm text-slate-600 mt-1">
+              {% if scope == 'openid' %}
+                {{ _('Authenticate your identity using your MattsCoinage.com account.') }}
+              {% elif scope == 'email' %}
+                {{ _('Access your email address.') }}
+              {% elif scope == 'profile' %}
+                {{ _('Access your basic profile information.') }}
+              {% elif scope == 'offline_access' %}
+                {{ _('Maintain access to data you have given it access to.') }}
+              {% endif %}
+            </div>
           </div>
         </div>
       {% endfor %}

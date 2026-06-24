@@ -496,7 +496,7 @@ async def verify_email_request(
             )
         return response
 
-    await user_manager.request_verify_email(user, user.email)
+    await user_manager.request_verify_email(user, user.email, request=request)
 
     return RedirectResponse(
         tenant.url_path_for(request, "auth:verify_email"),

@@ -107,6 +107,22 @@ msgstr "%(name)s wants to access your account"
 msgid "This will allow %(name)s to:"
 msgstr "This will allow %(name)s to:"
 
+#: fief/templates/auth/consent.html:18
+msgid "Authenticate your identity using your MattsCoinage.com account."
+msgstr "Authenticate your identity using your MattsCoinage.com account."
+
+#: fief/templates/auth/consent.html:20
+msgid "Access your email address."
+msgstr "Access your email address."
+
+#: fief/templates/auth/consent.html:22
+msgid "Access your basic profile information."
+msgstr "Access your basic profile information."
+
+#: fief/templates/auth/consent.html:24
+msgid "Maintain access to data you have given it access to."
+msgstr "Maintain access to data you have given it access to."
+
 #: fief/apps/auth/forms/auth.py:16
 msgid "Deny"
 msgstr "Deny"
