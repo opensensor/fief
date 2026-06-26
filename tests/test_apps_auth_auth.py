@@ -1006,6 +1006,105 @@ class TestAuthPostVerifyEmail:
 
 
 @pytest.mark.asyncio
+class TestAuthVerifyEmailLink:
+    async def test_get_no_code_redirects_to_login(
+        self, tenant_params: TenantParams, test_client_auth: httpx.AsyncClient
+    ):
+        response = await test_client_auth.get(
+            f"{tenant_params.path_prefix}/verify-link"
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.headers["Location"].endswith(
+            f"{tenant_params.path_prefix}/login"
+        )
+
+    async def test_get_renders_confirmation_without_verifying(
+        self,
+        test_client_auth: httpx.AsyncClient,
+        main_session: AsyncSession,
+        test_data: TestData,
+    ):
+        """A mail-security scanner following the GET must NOT consume the code:
+        the page renders, the verification row survives, the user stays
+        unverified until an explicit POST."""
+        user = test_data["users"]["not_verified_email"]
+        code = email_verification_codes["not_verified_email"][0]
+        email_verification = test_data["email_verifications"]["not_verified_email"]
+        tenant = user.tenant
+        path_prefix = tenant.slug if not tenant.default else ""
+
+        response = await test_client_auth.get(
+            f"{path_prefix}/verify-link", params={"code": code}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        html = BeautifulSoup(response.text, features="html.parser")
+        form = html.find("form", id="verify-email-link-form")
+        assert form is not None
+        code_input = form.find("input", attrs={"name": "code"})
+        assert code_input is not None
+        assert code_input["value"] == code
+
+        # The GET neither consumed the code nor verified the user.
+        email_verification_repository = EmailVerificationRepository(main_session)
+        assert (
+            await email_verification_repository.get_by_id(email_verification.id)
+            is not None
+        )
+        user_repository = UserRepository(main_session)
+        unchanged_user = await user_repository.get_by_id(user.id)
+        assert unchanged_user is not None
+        assert unchanged_user.email_verified is False
+
+    async def test_post_invalid_code(
+        self,
+        tenant_params: TenantParams,
+        test_client_auth_csrf: httpx.AsyncClient,
+        csrf_token: str,
+    ):
+        response = await test_client_auth_csrf.post(
+            f"{tenant_params.path_prefix}/verify-link",
+            data={"code": "INVALIDCODE", "csrf_token": csrf_token},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.headers["Location"].endswith(
+            f"{tenant_params.path_prefix}/login?verify_error=1"
+        )
+
+    async def test_post_valid_verifies_and_consumes(
+        self,
+        test_client_auth_csrf: httpx.AsyncClient,
+        csrf_token: str,
+        main_session: AsyncSession,
+        test_data: TestData,
+    ):
+        user = test_data["users"]["not_verified_email"]
+        code = email_verification_codes["not_verified_email"][0]
+        email_verification = test_data["email_verifications"]["not_verified_email"]
+        tenant = user.tenant
+        path_prefix = tenant.slug if not tenant.default else ""
+
+        response = await test_client_auth_csrf.post(
+            f"{path_prefix}/verify-link",
+            data={"code": code, "csrf_token": csrf_token},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.headers["Location"].endswith(f"{path_prefix}/login?verified=1")
+
+        email_verification_repository = EmailVerificationRepository(main_session)
+        assert (
+            await email_verification_repository.get_by_id(email_verification.id) is None
+        )
+        user_repository = UserRepository(main_session)
+        updated_user = await user_repository.get_by_id(user.id)
+        assert updated_user is not None
+        assert updated_user.email_verified is True
+
+
+@pytest.mark.asyncio
 class TestAuthGetConsent:
     @pytest.mark.parametrize(
         "cookie,error",

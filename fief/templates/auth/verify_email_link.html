@@ -1,0 +1,34 @@
+{% import "macros/buttons.html" as buttons %}
+{% import 'macros/forms.html' as forms %}
+
+{% extends "auth/layout.html" %}
+
+{% block head_title_content %}{{ _('Verify your email') }}{% endblock %}
+
+{% block title %}{{ _('Verify your email') }}{% endblock %}
+
+{% block auth_form %}
+{#
+  Deliberately NOT auto-submitted: verification happens only on a real human
+  click. Mail-security link scanners follow the GET that renders this page but
+  do not submit the form, so the one-time code is preserved until the recipient
+  clicks "Verify my email".
+#}
+<form
+  id="{{ form.meta.id }}"
+  method="POST"
+  action="{{ tenant.url_path_for(request, 'auth:verify_email_link') }}"
+>
+  <div class="space-y-4">
+    <p class="text-justify text-sm">{{ _("You're almost there. Click the button below to confirm and verify your email address.") }}</p>
+  </div>
+  {{ form.code }}
+  {{ forms.form_csrf_token(form) }}
+  <div class="flex items-center justify-between mt-6">
+    <a href="{{ tenant.url_path_for(request, 'auth:verify_email_request') }}" class="btn border-slate-200 hover:border-slate-300 text-primary">{{ _('Resend the code') }}</a>
+    {% call buttons.submit('btn') %}
+      {{ _("Verify my email") }}
+    {% endcall %}
+  </div>
+</form>
+{% endblock %}
