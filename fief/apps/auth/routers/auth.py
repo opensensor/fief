@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from fief.apps.auth.forms.auth import ConsentForm, LoginForm
 from fief.apps.auth.forms.mfa import MfaRecoveryForm, TotpVerifyForm
-from fief.apps.auth.forms.verify_email import VerifyEmailForm
+from fief.apps.auth.forms.verify_email import VerifyEmailForm, VerifyEmailLinkForm
 from fief.dependencies.auth import (
     BaseContext,
     check_unsupported_request_parameter,
@@ -615,54 +615,90 @@ async def verify_email(
     return await form_helper.get_response()
 
 
-@router.get("/verify-link", name="auth:verify_email_link")
+@router.api_route(
+    "/verify-link", methods=["GET", "POST"], name="auth:verify_email_link"
+)
 async def verify_email_link(
     request: Request,
-    code: str = Query(...),
+    code: str | None = Query(default=None),
     user_manager: UserManager = Depends(get_user_manager),
     tenant: Tenant = Depends(get_current_tenant),
+    context: BaseContext = Depends(get_base_context),
     ip_info: ClientIpInfo = Depends(get_client_ip_info),
     rate_limiter: RateLimiter = Depends(get_rate_limiter),
     audit_logger: AuditLogger = Depends(get_audit_logger),
 ):
-    """Sessionless one-click email activation. The ``code`` query param is the
-    secret (delivered to the address), so possession proves ownership and no
-    login session is required — this is what makes the link clickable straight
-    from the inbox. On success/failure we bounce to /login with a flag the
-    template can surface."""
+    """Email activation from a one-click link, gated behind an explicit POST.
+
+    Verification is performed only when the confirmation page is *submitted*,
+    never on the GET. Recipient-side mail-security scanners (Microsoft Safe
+    Links, Gmail, corporate proxies) automatically follow the link's GET the
+    instant the message is delivered; if that GET consumed the one-time code,
+    the real user — clicking the button or typing the same code — would always
+    land on an already-spent code and see ``verify_error=1``. Requiring a human
+    form submission keeps the code intact until the recipient acts.
+
+    Possession of ``code`` (delivered to the address) is the proof of ownership,
+    so no login session is required. ``tenant_id`` scopes the lookup so a code
+    can only verify a user of the current tenant.
+    """
     login_url = tenant.url_path_for(request, "auth:login")
 
-    if settings.rate_limit_enabled:
-        try:
-            await rate_limiter.check(
-                scope="verify_ip",
-                key=ip_info.rate_limit_key,
-                window=RateLimitWindow(settings.rate_limit_verify_per_ip_per_min, 60),
-            )
-        except RateLimitExceeded:
-            audit_logger(
-                AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
-                extra={
-                    "scope": "verify_ip",
-                    "key_hash": _hash_key(ip_info.rate_limit_key),
-                    "endpoint": "/verify-link",
-                    "client_ip": ip_info.raw,
-                },
-            )
-            return RedirectResponse(login_url, status_code=status.HTTP_302_FOUND)
-
-    try:
-        await user_manager.verify_email_by_code(
-            code, tenant_id=tenant.id, request=request
-        )
-    except InvalidEmailVerificationCodeError:
-        return RedirectResponse(
-            f"{login_url}?verify_error=1", status_code=status.HTTP_302_FOUND
-        )
-
-    return RedirectResponse(
-        f"{login_url}?verified=1", status_code=status.HTTP_302_FOUND
+    form_helper = FormHelper(
+        VerifyEmailLinkForm,
+        "auth/verify_email_link.html",
+        request=request,
+        context={**context},
     )
+
+    if request.method == "POST":
+        if not await form_helper.is_submitted_and_valid():
+            return await form_helper.get_response()
+
+        form = await form_helper.get_form()
+
+        if settings.rate_limit_enabled:
+            try:
+                await rate_limiter.check(
+                    scope="verify_ip",
+                    key=ip_info.rate_limit_key,
+                    window=RateLimitWindow(
+                        settings.rate_limit_verify_per_ip_per_min, 60
+                    ),
+                )
+            except RateLimitExceeded:
+                audit_logger(
+                    AuditLogMessage.USER_RATE_LIMIT_EXCEEDED,
+                    extra={
+                        "scope": "verify_ip",
+                        "key_hash": _hash_key(ip_info.rate_limit_key),
+                        "endpoint": "/verify-link",
+                        "client_ip": ip_info.raw,
+                    },
+                )
+                return RedirectResponse(login_url, status_code=status.HTTP_302_FOUND)
+
+        try:
+            await user_manager.verify_email_by_code(
+                form.code.data, tenant_id=tenant.id, request=request
+            )
+        except InvalidEmailVerificationCodeError:
+            return RedirectResponse(
+                f"{login_url}?verify_error=1", status_code=status.HTTP_302_FOUND
+            )
+
+        return RedirectResponse(
+            f"{login_url}?verified=1", status_code=status.HTTP_302_FOUND
+        )
+
+    # GET: render the confirmation page WITHOUT verifying. A link scanner that
+    # follows this GET only renders the page; the code is spent solely on POST.
+    if code is None:
+        return RedirectResponse(login_url, status_code=status.HTTP_302_FOUND)
+
+    form = await form_helper.get_form()
+    form.code.data = code
+    return await form_helper.get_response()
 
 
 # ---------------------------------------------------------------------------
@@ -1068,9 +1104,7 @@ async def mfa_recover(
         # post-MFA cookie just minted by ``complete_login_after_mfa`` is
         # passed in as ``current_session_id`` so it survives. Audit logged
         # with ``trigger_reason="recovery_code_used"``.
-        new_session_token_id = (
-            authentication_flow.last_minted_session_token_id
-        )
+        new_session_token_id = authentication_flow.last_minted_session_token_id
         await device_sessions_service.auto_revoke_others(
             user.id,
             current_session_id=new_session_token_id,
@@ -1218,12 +1252,16 @@ async def mfa_passkey_verify(
         # ``reason=credential_not_found``; we just bump the counter to
         # match the TOTP lockout ladder.
         await _record_failed_mfa_attempt(login_session, login_session_repository)
-        return JSONResponse({"error": "invalid"}, status_code=status.HTTP_401_UNAUTHORIZED)
+        return JSONResponse(
+            {"error": "invalid"}, status_code=status.HTTP_401_UNAUTHORIZED
+        )
     except InvalidAssertion:
         # Service already audit-logged USER_PASSKEY_VERIFY_FAILED with
         # ``reason=invalid_signature``.
         await _record_failed_mfa_attempt(login_session, login_session_repository)
-        return JSONResponse({"error": "invalid"}, status_code=status.HTTP_401_UNAUTHORIZED)
+        return JSONResponse(
+            {"error": "invalid"}, status_code=status.HTTP_401_UNAUTHORIZED
+        )
     except SignCountRollback:
         # The credential is suspect, not the attempt — do NOT burn the
         # user's lockout budget on a sign-count regression. The service
