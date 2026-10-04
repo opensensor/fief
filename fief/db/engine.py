@@ -26,15 +26,19 @@ def create_engine(
                 "pool_reset_on_return": "rollback",
             }
         )
-    # Set statement timeout for PostgreSQL via asyncpg server_settings
     if dialect_name == "postgresql":
-        connect_args.setdefault("server_settings", {})
-        connect_args["server_settings"]["statement_timeout"] = str(
-            settings.database_statement_timeout
-        )
-        connect_args["server_settings"]["idle_in_transaction_session_timeout"] = str(
-            settings.database_idle_in_transaction_timeout
-        )
+        # Set statement timeout for PostgreSQL via asyncpg server_settings.
+        # A transaction-mode pooler (PgBouncer) rejects these startup
+        # parameters, so a pooled deployment carries them as role defaults
+        # (ALTER ROLE ... SET statement_timeout) and sends none here.
+        if not settings.database_pooled:
+            connect_args.setdefault("server_settings", {})
+            connect_args["server_settings"]["statement_timeout"] = str(
+                settings.database_statement_timeout
+            )
+            connect_args["server_settings"]["idle_in_transaction_session_timeout"] = str(
+                settings.database_idle_in_transaction_timeout
+            )
         # Client-side command timeout (asyncpg, in seconds). PostgreSQL's
         # statement_timeout exempts ROLLBACK/ABORT, so a hung ROLLBACK on a
         # broken TCP connection will wait forever without this.
