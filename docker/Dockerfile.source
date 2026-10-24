@@ -1,18 +1,19 @@
 # =============================================================================
 # Stage 1: Build – compile translations, build static assets, build wheel
 # =============================================================================
+FROM node:24.22.1-slim AS node-build
 FROM python:3.12-slim AS builder
+
+COPY --from=node-build /usr/local/ /usr/local/
 
 WORKDIR /build
 
-# Install Node.js 18, build tools, and libpq headers for psycopg2
+# Install build tools and libpq headers; Node is supplied by the pinned build stage.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
     ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python build tools
