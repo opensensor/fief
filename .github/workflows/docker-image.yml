@@ -49,6 +49,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          build-args: |
+            SENTRY_RELEASE=opensensor-fief@${{ github.sha }}
           file: docker/Dockerfile.source
           platforms: linux/amd64
           push: true
