@@ -43,10 +43,6 @@ jobs:
       FIEF_CLIENT_ID: FiefClientID
       FIEF_CLIENT_SECRET: FiefClientSecret
       DATABASE_TYPE: ${{ matrix.database }}
-      DATABASE_HOST: localhost
-      DATABASE_PORT: '5432'
-      DATABASE_USERNAME: fief
-      DATABASE_PASSWORD: fief-test-only
       DATABASE_NAME: fief
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,6 +55,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - name: Configure PostgreSQL connection
+        if: matrix.database == 'POSTGRESQL'
+        run: |
+          cat >> "$GITHUB_ENV" <<'ENV'
+          DATABASE_HOST=localhost
+          DATABASE_PORT=5432
+          DATABASE_USERNAME=fief
+          DATABASE_PASSWORD=fief-test-only
+          ENV
       - run: uv sync --locked
       - run: npm ci
       - run: npm test
