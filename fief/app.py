@@ -23,7 +23,10 @@ sentry_sdk.init(
     dsn=settings.sentry_dsn_server,
     environment=settings.environment.value,
     traces_sample_rate=0.1,
-    release=__version__,
+    release=settings.sentry_release or __version__,
+    send_default_pii=False,
+    max_request_body_size="never",
+    include_local_variables=False,
     integrations=[RedisIntegration()],
 )
 

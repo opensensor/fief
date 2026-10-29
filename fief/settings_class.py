@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     sentry_dsn_server: str | None = None
     sentry_dsn_worker: str | None = None
+    sentry_release: str | None = None
     telemetry_enabled: bool = True
     allow_origin_regex: str = "http://.*localhost:[0-9]+"
     port: int = 8000
