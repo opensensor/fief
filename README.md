@@ -7,13 +7,11 @@
 </p>
 
 > [!IMPORTANT]
-> Fief, as you know it today, is wrapping up its current chapter.
-> We're working on a completely new and exciting vision for the future!
->
-> This means we won't be adding new features or fixing bugs in this codebase anymore.
-> Thank you so much for being part of the journey so far — your support has meant the world to us.
->
-> **Stay tuned — we can't wait to show you what's next! 🚀**
+> This is the [OpenSensor fork of Fief](https://github.com/opensensor/fief),
+> maintained for OpenSensor authentication infrastructure. The original upstream
+> no longer maintains this codebase. Fork-specific changes, validation results,
+> and upgrade instructions are recorded in the
+> [maintenance notes](docs/maintenance/2026-10-29-upgrade.md).
 
 ## Getting started
 
@@ -30,7 +28,8 @@
 
 All contributions to improve the project are welcome! In particular, bug and documentation fixes are really appreciated.
 
-For new features and larger improvements, we kindly ask you to [**open a discussion first**](https://github.com/orgs/fief-dev/discussions/new?category=ideas) about your idea, what motivates it and how you plan to implement it **before you start working**. It'll avoid frustration on both sides if we decide not to integrate your code in the project.
+Report bugs and discuss larger changes in the
+[OpenSensor fork's issues](https://github.com/opensensor/fief/issues).
 
 Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
 
@@ -85,13 +84,25 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 
 ## Development
 
-To get started quickly, we recommend you to use [GitHub Codespaces](https://github.com/features/codespaces). We have a complete configuration allowing you to start working on Fief right away, including pre-configured PostgreSQL and Redis servers.
+Use Python 3.14 (3.12–3.14 supported), uv, and the Node LTS version in `.nvmrc`.
+The lockfiles cover runtime, development, and container dependencies.
 
-<p align="center">
-<a href="https://github.com/codespaces/new?hide_repo_select=true&ref=main&repo=444125382"><img src="https://github.com/codespaces/badge.svg" alt="Open in GitHub Codespaces"></a>
-</p>
+```sh
+uv sync --locked
+npm ci
+uv run python scripts/init-dev-env.py
+docker compose up -d
+npm run build
+uv run pybabel compile --domain=messages --directory=fief/locale
+uv run fief run-server
+```
 
-When the Codespace is built, an admin user is automatically created.
+The setup script creates `.env` with independent application and MFA encryption
+keys. Re-running it preserves existing keys and settings. Never replace keys
+for an existing database: they protect stored client secrets and MFA secrets.
+
+The sample configuration creates a local development admin on server startup.
+These sample credentials are for local development only.
 
 > **Admin user credentials**
 >
@@ -99,16 +110,27 @@ When the Codespace is built, an admin user is automatically created.
 >
 > Password: `herminetincture`
 
-Run the Fief server in development mode with the following command:
+Start the worker in another terminal:
 
 ```sh
-hatch run dev.server.start
+uv run fief run-worker -p 1 -t 1
 ```
 
-The worker can also be started with the following command:
+The devcontainer provides PostgreSQL and Redis and uses the same environment
+setup. Existing PostgreSQL 14 development data needs an explicit dump/restore
+into the new PostgreSQL 18 volume; see the maintenance notes before upgrading.
+
+Run the checks and container smoke test:
 
 ```sh
-hatch run dev.worker.start
+uv run --locked pytest -n 4 --no-cov -q
+uv run --locked mypy fief/
+npm test
+npm audit
+uv export --locked --all-groups --no-emit-project -o /tmp/fief-requirements.txt
+uv run --locked pip-audit --no-deps --disable-pip -r /tmp/fief-requirements.txt
+docker build -f docker/Dockerfile.source -t opensensor/fief:local .
+bash scripts/smoke-container.sh opensensor/fief:local
 ```
 
 ## License

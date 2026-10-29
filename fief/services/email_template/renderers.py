@@ -68,6 +68,13 @@ class EmailTemplateRenderer:
         context: "ForgotPasswordContext",
     ) -> str: ...  # pragma: no cover
 
+    @overload
+    async def render(
+        self,
+        type: Literal[EmailTemplateType.MFA_ENABLED, EmailTemplateType.MFA_DISABLED],
+        context: "EmailContext",
+    ) -> str: ...
+
     async def render(self, type, context: "EmailContext") -> str:
         jinja_environment = await self._get_jinja_environment()
         template_object = jinja_environment.get_template(type.value)
@@ -132,6 +139,13 @@ class EmailSubjectRenderer:
         type: Literal[EmailTemplateType.FORGOT_PASSWORD],
         context: "ForgotPasswordContext",
     ) -> str: ...  # pragma: no cover
+
+    @overload
+    async def render(
+        self,
+        type: Literal[EmailTemplateType.MFA_ENABLED, EmailTemplateType.MFA_DISABLED],
+        context: "EmailContext",
+    ) -> str: ...
 
     async def render(self, type, context: "EmailContext") -> str:
         jinja_environment = await self._get_jinja_environment()

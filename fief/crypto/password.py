@@ -5,9 +5,19 @@ from pwdlib.hashers.argon2 import Argon2Hasher
 from pwdlib.hashers.bcrypt import BcryptHasher
 
 
+class LegacyBcryptHasher(BcryptHasher):
+    """Verify existing hashes with the byte limit used by bcrypt before v5."""
+
+    def verify(self, password: str | bytes, hash: str | bytes) -> bool:
+        password_bytes = password.encode("utf-8") if isinstance(password, str) else password
+        return super().verify(password_bytes[:72], hash)
+
+
 class PasswordHelper:
     def __init__(self) -> None:
-        self.password_hash = PasswordHash((BcryptHasher(), Argon2Hasher()))
+        # New passwords use Argon2id. Successful legacy logins upgrade their
+        # bcrypt hashes without requiring a password reset.
+        self.password_hash = PasswordHash((Argon2Hasher(), LegacyBcryptHasher()))
 
     def verify_and_update(
         self, plain_password: str, hashed_password: str

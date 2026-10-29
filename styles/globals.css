@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=fallback');
+@import "tailwindcss" source(none);
+@import './additional-styles/utility-patterns.css' layer(components);
+@import './additional-styles/range-slider.css' layer(components);
+@import './additional-styles/toggle-switch.css' layer(components);
+@import './additional-styles/theme.css' layer(components);
+
+@config '../tailwind.config.mjs';
+@custom-variant sidebar-expanded (.sidebar-expanded &);
+
+/* Preserve the existing controls and brand defaults across the v4 upgrade. */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+  input::placeholder, textarea::placeholder { color: var(--color-gray-400); }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+  dialog { margin: auto; }
+}
+
+[x-cloak=""] { display: none; }
+@media (width < 64rem) {
+  [x-cloak="lg"] { display: none; }
+}
+
+:root {
+  /* OpenSensor brand palette – teal/green */
+  --color-primary-50: #f0fdfa;
+  --color-primary-100: #ccfbf1;
+  --color-primary-200: #99f6e4;
+  --color-primary-300: #5eead4;
+  --color-primary-400: #2dd4bf;
+  --color-primary-500: #14b8a6;
+  --color-primary-600: #0d9488;
+  --color-primary-700: #0f766e;
+  --color-primary-800: #115e59;
+  --color-primary-900: #134e4a;
+  --color-accent: #0f172a;
+  --color-light: #e2e8f0;
+  --color-light-hover: #cbd5e1;
+  --color-input: #0f172a;
+  --color-bg-input: #ffffff;
+
+  font-size: 16px;
+  font-family: 'Inter', sans-serif;
+  color: #475569;
+  background-color: #ffffff;
+}

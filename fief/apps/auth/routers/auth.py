@@ -417,7 +417,7 @@ async def login(
         # them back here until they enroll.
         if tenant.mfa_required and not user.mfa_enabled:
             try:
-                enroll_path = tenant.url_path_for(request, "auth.dashboard:mfa_index")
+                enroll_path: str = tenant.url_path_for(request, "auth.dashboard:mfa_index")
             except Exception:
                 # Defensive fallback if the dashboard router isn't mounted
                 # (e.g. in a stripped-down test app). The dashboard always
@@ -445,7 +445,7 @@ async def login(
             login_session.mfa_pending_user_id = user.id
             await login_session_repository.update(login_session)
             try:
-                mfa_redirect_path = tenant.url_path_for(request, "auth:mfa_totp")
+                mfa_redirect_path: str = tenant.url_path_for(request, "auth:mfa_totp")
             except Exception:
                 # T14 will register ``auth:mfa_totp``. Until it lands we fall
                 # back to the well-known path so this branch is safe to ship

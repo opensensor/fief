@@ -9,19 +9,19 @@
 
     {% if has_hero %}
       <!-- Brand hero: top-stacked on mobile (capped), left half on desktop -->
-      <aside class="relative bg-slate-950 flex-shrink-0 overflow-hidden lg:w-1/2 lg:h-screen">
+      <aside class="relative bg-slate-950 shrink-0 overflow-hidden lg:w-1/2 lg:h-screen">
         <img src="{{ brand.hero_url }}" alt="{{ brand.name }}"
              class="block w-full h-[55vh] lg:w-full lg:h-full object-cover opacity-80" />
         <!-- Soft blend into form panel: bottom edge on mobile, right edge on desktop -->
-        <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent to-slate-50 lg:hidden"></div>
-        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-r from-transparent to-slate-50 hidden lg:block"></div>
+        <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-b from-transparent to-slate-50 lg:hidden"></div>
+        <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-linear-to-r from-transparent to-slate-50 hidden lg:block"></div>
       </aside>
     {% endif %}
 
     <!-- Form column -->
     <div class="relative{% if has_hero %} lg:w-1/2 lg:h-screen lg:overflow-y-auto{% endif %}">
       <!-- Avant-garde background pattern -->
-      <div class="absolute inset-0 z-0 bg-gradient-to-br from-slate-50 via-teal-50/30 to-emerald-50/20">
+      <div class="absolute inset-0 z-0 bg-linear-to-br from-slate-50 via-teal-50/30 to-emerald-50/20">
         <!-- Animated geometric pattern -->
         <svg class="absolute inset-0 w-full h-full opacity-[0.15]" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -70,7 +70,7 @@
                         <div class="w-2 h-2 rounded-full bg-teal-400 animate-pulse" style="animation-delay: 0.2s"></div>
                         <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" style="animation-delay: 0.4s"></div>
                       </div>
-                      <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank" class="text-xl font-bold bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent hover:from-teal-700 hover:to-emerald-700 transition-all">
+                      <a href="{{ brand_url }}" rel="noreferrer noopener" target="_blank" class="text-xl font-bold bg-linear-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent hover:from-teal-700 hover:to-emerald-700 transition-all">
                         {{ brand_name }}
                       </a>
                     </div>
@@ -84,12 +84,12 @@
             <div class="w-full max-w-sm mx-auto px-4 py-8">
               <div class="backdrop-blur-xl bg-white/80 rounded-2xl shadow-2xl border border-teal-100/50 p-8 relative overflow-hidden">
                 <!-- Subtle inner glow -->
-                <div class="absolute inset-0 bg-gradient-to-br from-teal-50/50 via-transparent to-emerald-50/30 pointer-events-none"></div>
+                <div class="absolute inset-0 bg-linear-to-br from-teal-50/50 via-transparent to-emerald-50/30 pointer-events-none"></div>
 
                 <div class="relative z-10">
                   <h1 class="text-3xl text-accent font-bold mb-6">{% block title %}{% endblock %}</h1>
                   {% if error is defined %}
-                    <div class="my-4 px-4 py-2 rounded-sm text-sm bg-red-100 border border-red-200 text-red-600">
+                    <div class="my-4 px-4 py-2 rounded-xs text-sm bg-red-100 border border-red-200 text-red-600">
                       <div class="flex w-full justify-between items-start">
                         <div class="flex">
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 fill-current opacity-80 mt-[3px] mr-3" viewBox="0 0 20 20">
@@ -101,7 +101,7 @@
                     </div>
                   {% endif %}
                   {% if success is defined %}
-                    <div class="my-4 px-4 py-2 rounded-sm text-sm bg-emerald-100 border border-emerald-200 text-emerald-600">
+                    <div class="my-4 px-4 py-2 rounded-xs text-sm bg-emerald-100 border border-emerald-200 text-emerald-600">
                       <div class="flex w-full justify-between items-start">
                         <div class="flex">
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 fill-current opacity-80 mt-[3px] mr-3" viewBox="0 0 20 20">

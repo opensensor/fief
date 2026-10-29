@@ -396,7 +396,15 @@ def get_form_field(user_field: UserField) -> Field:
     if user_field.type == UserFieldType.STRING:
         field_kwargs.update({"filters": [empty_string_to_none]})
     if user_field.type == UserFieldType.CHOICE:
-        field_kwargs.update({"choices": user_field.configuration.get("choices")})
+        # JSON stores pairs as lists; WTForms 3.3 expects tuple choices.
+        field_kwargs.update(
+            {
+                "choices": [
+                    tuple(choice)
+                    for choice in user_field.configuration.get("choices") or []
+                ]
+            }
+        )
     elif user_field.type == UserFieldType.PHONE_NUMBER:
         field_kwargs.update(
             {"render_kw": {"placeholder": "+42102030405", "autocomplete": "tel"}}

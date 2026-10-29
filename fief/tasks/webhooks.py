@@ -58,8 +58,8 @@ def should_retry_deliver_webhook(retries_so_far, exception):
     )
 
 
-deliver_webhook = dramatiq.actor(
-    DeliverWebhookTask(), retry_when=should_retry_deliver_webhook
+deliver_webhook = dramatiq.actor(retry_when=should_retry_deliver_webhook)(
+    DeliverWebhookTask()
 )
 
 

@@ -115,5 +115,5 @@ def test_rename_by_id_for_user_signature():
     sig = inspect.signature(method)
     params = sig.parameters
     assert list(params.keys()) == ["self", "id", "user_id", "label"]
-    assert params["label"].annotation is str
+    assert params["label"].annotation == str | None
     assert sig.return_annotation is int

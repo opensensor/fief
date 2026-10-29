@@ -10,6 +10,7 @@ class TestGetSSLModeParameters:
         "drivername,ssl_mode",
         [
             ("postgresql", PostreSQLSSLMode.DISABLE),
+            ("postgresql+psycopg", PostreSQLSSLMode.DISABLE),
             ("mysql+pymysql", MySQLSSLMode.DISABLED),
         ],
     )
@@ -18,6 +19,7 @@ class TestGetSSLModeParameters:
         assert query == {}
         assert connect_args == {}
 
+    @pytest.mark.parametrize("drivername", ["postgresql", "postgresql+psycopg"])
     @pytest.mark.parametrize(
         "ssl_mode",
         [
@@ -28,8 +30,8 @@ class TestGetSSLModeParameters:
             PostreSQLSSLMode.VERIFY_FULL,
         ],
     )
-    def test_postgresql(self, ssl_mode: str):
-        query, connect_args = get_ssl_mode_parameters("postgresql", ssl_mode, {}, {})
+    def test_postgresql(self, drivername: str, ssl_mode: str):
+        query, connect_args = get_ssl_mode_parameters(drivername, ssl_mode, {}, {})
         assert query == {
             "sslmode": ssl_mode,
             "sslrootcert": ssl.get_default_verify_paths().openssl_cafile,

@@ -16,7 +16,7 @@
   <div class="flex justify-end my-2">
     {{ buttons.clipboard(key | tojson | trim | forceescape) }}
   </div>
-  <pre class="relative overflow-scroll p-1 bg-slate-100 rounded border border-slate-300">{{ key | tojson(indent=4) | trim }}</pre>
+  <pre class="relative overflow-scroll p-1 bg-slate-100 rounded-sm border border-slate-300">{{ key | tojson(indent=4) | trim }}</pre>
 {% endcall %}
 {% call modal.footer() %}
   <button

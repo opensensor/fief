@@ -1,5 +1,5 @@
 [tool.mypy]
-plugins = ["sqlalchemy.ext.mypy.plugin", "pydantic.mypy"]
+plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
@@ -43,10 +43,6 @@ module = "pycountry.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "sentry_dramatiq.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = "wtforms.*"
 ignore_missing_imports = true
 
@@ -59,7 +55,7 @@ module = "sqlalchemy_utils.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "posthog.*"
+module = ["posthog.*", "user_agents.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -75,7 +71,7 @@ module = "attr.*"  # Imported by rich in .hatch/fief-server/lib/python3.11/site-
 ignore_missing_imports = true
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 extend-select = ["I", "TRY", "UP"]
@@ -90,6 +86,8 @@ omit = ["fief/alembic/*"]
 addopts = "-n auto --cov fief/ --cov-report=term-missing"
 markers = ["test_data", "access_token", "authenticated_admin", "htmx"]
 asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 
 [tool.hatch]
 
@@ -119,26 +117,8 @@ path = "fief/__init__.py"
 
 [tool.hatch.envs.default]
 installer = "uv"
-python = "3.12"
-dependencies = [
-  "asgi-lifespan",
-  "beautifulsoup4",
-  "coverage[toml]",
-  "fakeredis>=2.20",
-  "gevent",
-  "httpx",
-  "libcst",
-  "mypy",
-  "pytest",
-  "pytest-cov",
-  "pytest-asyncio>=0.21,<0.22",
-  "pytest-mock",
-  "pytest-xdist",
-  "respx",
-  "ruff",
-  "types-python-slugify",
-  "types-pytz",
-]
+python = "3.14"
+dependency-groups = ["dev"]
 
 [tool.hatch.envs.default.scripts]
 test = "pytest {args}"
@@ -209,56 +189,56 @@ readme = "README.md"
 classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3 :: Only",
 ]
 dynamic = ["version"]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.15"
 dependencies = [
-    "aiomysql ==0.2.0",
-    "aiosqlite ==0.20.0",
-    "alembic ==1.14.0",
-    "apscheduler ==3.10.4",
-    "argon2_cffi ==23.1.0",
-    "asgi-babel==0.10.0",
-    "asyncpg ==0.30.0",
-    "dramatiq[redis] ==1.17.1",
-    "email_validator ==2.2.0",
-    "fastapi ==0.115.4",
-    "fief-client ==0.20.0",
-    "furl ==2.1.3",
-    "httpx >=0.27",
-    "httpx-oauth ==0.15.1",
-    "itsdangerous ==2.2.0",
-    "Jinja2 ==3.1.4",
-    "jwcrypto ==1.5.6",
-    "loguru ==0.7.2",
-    "phonenumbers >=8.12.48,<8.14",
-    "posthog >=3.0.1,<4",
-    "postmarker ==1.0",
-    "pydantic ==2.9.2",
-    "python-multipart ==0.0.17",
-    "pydantic-settings ==2.6.1",
-    "passlib[bcrypt] >=1.7.4",
-    "pwdlib[argon2,bcrypt] ==0.2.1",
-    "pyotp >=2.9",
-    "redis >=5.0",
-    "segno >=1.6",
-    "sendgrid ==6.11.0",
-    "psycopg2 ==2.9.10",
-    "pycountry >=23,<25",
-    "python-slugify ==8.0.4",
-    "pytz ==2024.2",
-    "rich ==13.9.4",
-    "sentry_dramatiq ==0.3.3",
-    "sentry-sdk ==2.18.0",
-    "sqlalchemy[mypy] ==2.0.36",
-    "sqlalchemy-utils ==0.41.2",
-    "typer>=0.13.0",
-    "user-agents >=2.2",
-    "uvicorn[standard]==0.32.0",
-    "webauthn >=2.0,<3",
-    "WTForms==3.2.1",
-    "zxcvbn-rs-py==0.1.1",
+    "aiomysql==0.3.2",
+    "aiosqlite==0.22.1",
+    "alembic==1.20.1",
+    "apscheduler==3.11.3",
+    "argon2_cffi==25.1.0",
+    "asgi-babel==0.11.0",
+    "asyncpg==0.32.0",
+    "dramatiq[redis]==2.2.1",
+    "email_validator==2.3.0",
+    "fastapi==0.162.0",
+    "fief-client==0.20.0",
+    "furl==2.1.4",
+    "httpx==0.27.2",
+    "httpx-oauth==0.17.0",
+    "itsdangerous==2.2.0",
+    "Jinja2==3.1.6",
+    "jwcrypto==1.6.1",
+    "loguru==0.7.3",
+    "phonenumbers==9.0.42",
+    "posthog==7.79.0",
+    "postmarker==1.0",
+    "pydantic==2.14.1",
+    "python-multipart==0.0.32",
+    "pydantic-settings==2.16.2",
+    "pwdlib[argon2,bcrypt]==0.3.1",
+    "pyotp==2.10.0",
+    "redis==8.1.0",
+    "segno==1.6.6",
+    "sendgrid==6.12.5",
+    "psycopg[binary]==3.3.6",
+    "pycountry==26.2.16",
+    "python-slugify==9.1.3",
+    "pytz==2026.5",
+    "rich==15.0.0",
+    "sentry-sdk==2.73.0",
+    "sqlalchemy[asyncio]==2.1.6",
+    "sqlalchemy-utils==0.43.0",
+    "typer==0.27.3",
+    "user-agents==2.2.0",
+    "uvicorn[standard]==0.54.0",
+    "webauthn==3.0.1",
+    "WTForms==3.3.1",
+    "zxcvbn-rs-py==0.3.0",
 ]
 
 [project.scripts]
@@ -266,4 +246,32 @@ fief = "fief.cli.__main__:app"
 
 [project.urls]
 Documentation = "https://docs.fief.dev"
-Source = "https://github.com/fief-dev/fief"
+Source = "https://github.com/opensensor/fief"
+
+[dependency-groups]
+dev = [
+    "asgi-lifespan",
+    "beautifulsoup4",
+    "coverage[toml]",
+    "fakeredis>=2.20",
+    "gevent",
+    "httpx",
+    "libcst",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio>=1.4.1,<2",
+    "pytest-mock",
+    "pytest-xdist",
+    "respx",
+    "ruff",
+    "types-python-slugify",
+    "types-pytz",
+    "pip-audit>=2.10.1,<3",
+    "build",
+    "hatchling",
+    "hatch-regex-commit",
+]
+
+# Process supervisor shipped only in the container image.
+docker = ["supervisor==4.3.0"]

@@ -1,0 +1,93 @@
+name: Tests and dependency audits
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.12'
+            database: SQLITE
+          - python: '3.14'
+            database: SQLITE
+          - python: '3.14'
+            database: POSTGRESQL
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: fief
+          POSTGRES_PASSWORD: fief-test-only
+          POSTGRES_DB: fief
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fief"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ENVIRONMENT: development
+      TELEMETRY_ENABLED: 'false'
+      SENTRY_DSN_SERVER: ''
+      SENTRY_DSN_WORKER: ''
+      SECRET: fief-isolated-ci-test-secret
+      ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      MFA_SECRET_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      FIEF_CLIENT_ID: FiefClientID
+      FIEF_CLIENT_SECRET: FiefClientSecret
+      DATABASE_TYPE: ${{ matrix.database }}
+      DATABASE_HOST: localhost
+      DATABASE_PORT: '5432'
+      DATABASE_USERNAME: fief
+      DATABASE_PASSWORD: fief-test-only
+      DATABASE_NAME: fief
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.6'
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: uv sync --locked
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: uv run --locked pybabel compile --domain=messages --directory=fief/locale
+      - run: uv run --locked pytest -n 4 --no-cov -q
+      - run: uv run --locked mypy fief/
+      - run: uv build --wheel --no-build-isolation
+      - run: npm audit
+      - name: Audit locked Python dependencies
+        run: |
+          uv export --locked --all-groups --no-emit-project --output-file /tmp/fief-requirements.txt
+          uv run --locked pip-audit --no-deps --disable-pip -r /tmp/fief-requirements.txt
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build --pull -f docker/Dockerfile.source -t fief-ci:test .
+      - run: bash scripts/smoke-container.sh fief-ci:test
+      - name: Report container vulnerabilities
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock:ro
+          -v trivy-cache:/root/.cache/trivy
+          aquasec/trivy:0.76.1 image --scanners vuln fief-ci:test
+      - name: Reject fixable high or critical container vulnerabilities
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock:ro
+          -v trivy-cache:/root/.cache/trivy
+          aquasec/trivy:0.76.1 image --scanners vuln
+          --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 fief-ci:test

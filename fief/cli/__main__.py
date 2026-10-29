@@ -1,4 +1,3 @@
-import click
 import typer
 import typer.core
 from pydantic import ValidationError
@@ -9,16 +8,13 @@ settings_validation_errors: ValidationError | None = None
 
 
 class CustomUnknownCommandGroup(typer.core.TyperGroup):
-    def resolve_command(self, ctx, args):
-        try:
-            return super().resolve_command(ctx, args)
-        except click.exceptions.UsageError:
-            global settings_validation_errors
-            if settings_validation_errors:
-                message = typer.style("Some settings are invalid or missing.", fg="red")
-                typer.echo(f"{message}\n{str(settings_validation_errors)}", err=True)
-                raise typer.Exit(code=1) from settings_validation_errors
-            raise
+    def get_command(self, ctx, cmd_name):
+        command = super().get_command(ctx, cmd_name)
+        if command is None and settings_validation_errors:
+            message = typer.style("Some settings are invalid or missing.", fg="red")
+            typer.echo(f"{message}\n{settings_validation_errors!s}", err=True)
+            raise typer.Exit(code=1) from settings_validation_errors
+        return command
 
 
 app = typer.Typer(

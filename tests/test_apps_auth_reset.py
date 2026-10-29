@@ -96,6 +96,7 @@ class TestPostForgotPassword:
             on_after_forgot_password,
             str(user.id),
             str_match(r"/reset.*token="),
+            None,
         )
 
 

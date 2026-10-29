@@ -194,7 +194,7 @@ def add_commands(app: typer.Typer) -> typer.Typer:
         asyncio.run(_pre_run_server())
 
         args = [*ctx.args, app]
-        uvicorn_context = uvicorn.main.make_context(None, args, parent=ctx)
+        uvicorn_context = uvicorn.main.make_context("uvicorn", args)
         uvicorn_context.forward(uvicorn.main, app=app, host=host, port=settings.port)
 
     @app.command(

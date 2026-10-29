@@ -57,6 +57,7 @@ def add_commands(app: typer.Typer) -> typer.Typer:
             "FIEF_CLIENT_ID": secrets.token_urlsafe(),
             "FIEF_CLIENT_SECRET": secrets.token_urlsafe(),
             "ENCRYPTION_KEY": generate_key().decode("utf-8"),
+            "MFA_SECRET_ENCRYPTION_KEY": generate_key().decode("utf-8"),
             "PORT": port,
             "FIEF_DOMAIN": f"{host}:{port}",
             "FIEF_MAIN_USER_EMAIL": user_email,
@@ -86,7 +87,7 @@ def add_commands(app: typer.Typer) -> typer.Typer:
                     f'-e "{name}={value}"'
                     for (name, value) in environment_variables.items()
                 ],
-                "ghcr.io/fief-dev/fief:latest",
+                "ghcr.io/opensensor/fief:latest",
             ]
             typer.echo(" \\\n  ".join(parts))
         else:

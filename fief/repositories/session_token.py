@@ -1,7 +1,9 @@
 from datetime import datetime
+from typing import cast
 
 from pydantic import UUID4
 from sqlalchemy import delete, select, update
+from sqlalchemy.engine import CursorResult
 
 from fief.models import SessionToken
 from fief.repositories.base import BaseRepository, ExpiresAtMixin, UUIDRepositoryMixin
@@ -53,7 +55,7 @@ class SessionTokenRepository(
             SessionToken.user_id == user_id,
         )
         result = await self._execute_statement(statement)
-        return result.rowcount
+        return cast(CursorResult, result).rowcount
 
     async def delete_all_except_for_user(
         self, user_id: UUID4, except_ids: list[UUID4]
@@ -70,7 +72,7 @@ class SessionTokenRepository(
         if except_ids:
             statement = statement.where(SessionToken.id.notin_(except_ids))
         result = await self._execute_statement(statement)
-        return result.rowcount
+        return cast(CursorResult, result).rowcount
 
     async def touch_last_seen(
         self,

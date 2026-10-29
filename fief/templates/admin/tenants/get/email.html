@@ -6,7 +6,7 @@
 {% block tab %}
 <div class="mt-6 mb-4">
   {% call alerts.info() %}
-    <p>These settings allow you to configure the sender of transactional emails (welcome, forgot password, etc.). By default, emails will be sent by <code class="p-0.5 bg-slate-100 rounded border border-slate-300">{{ default_from_name }} &lt;{{ default_from_email }}&gt;</code>.</p>
+    <p>These settings allow you to configure the sender of transactional emails (welcome, forgot password, etc.). By default, emails will be sent by <code class="p-0.5 bg-slate-100 rounded-sm border border-slate-300">{{ default_from_name }} &lt;{{ default_from_email }}&gt;</code>.</p>
   {% endcall %}
 </div>
 <form
@@ -34,15 +34,15 @@
 </form>
 {% if tenant.email_from_email and not email_provider.DOMAIN_AUTHENTICATION %}
   <div class="mt-6 space-y-4">
-    <p class="text-sm text-yellow-600">The email provider configured on this Fief server doesn't support domain authentication. The transactional emails will be sent by <code class="p-0.5 bg-slate-100 rounded border border-slate-300">{{ tenant.email_from_email }}</code> but it's possible they will be marked as spam by email clients.</p>
+    <p class="text-sm text-yellow-600">The email provider configured on this Fief server doesn't support domain authentication. The transactional emails will be sent by <code class="p-0.5 bg-slate-100 rounded-sm border border-slate-300">{{ tenant.email_from_email }}</code> but it's possible they will be marked as spam by email clients.</p>
   </div>
 {% elif tenant.email_domain %}
   <div class="mt-6 space-y-4">
     <div class="text-sm font-semibold text-slate-800">Domain authentication</div>
     {% if tenant.email_domain.is_verified() %}
-      <p class="text-sm">The email address domain <code class="p-0.5 bg-slate-100 rounded border border-slate-300">{{ tenant.email_domain.domain }}</code> is correctly authenticated. Transactional emails will be sent through this address.</p>
+      <p class="text-sm">The email address domain <code class="p-0.5 bg-slate-100 rounded-sm border border-slate-300">{{ tenant.email_domain.domain }}</code> is correctly authenticated. Transactional emails will be sent through this address.</p>
     {% else %}
-      <p class="text-sm text-red-600">The email address domain <code class="p-0.5 bg-slate-100 rounded border border-slate-300">{{ tenant.email_domain.domain }}</code> is not authenticated. Transactional emails will <strong>not</strong> be sent through this address. Click on the button below to see the details about your domain authentication.</p>
+      <p class="text-sm text-red-600">The email address domain <code class="p-0.5 bg-slate-100 rounded-sm border border-slate-300">{{ tenant.email_domain.domain }}</code> is not authenticated. Transactional emails will <strong>not</strong> be sent through this address. Click on the button below to see the details about your domain authentication.</p>
     {% endif %}
     <a
       href="{{ url_for('dashboard.tenants:email_domain_authentication', id=tenant.id) }}"

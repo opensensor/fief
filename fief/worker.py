@@ -1,5 +1,5 @@
-import sentry_dramatiq
 import sentry_sdk
+from sentry_sdk.integrations.dramatiq import DramatiqIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from fief import __version__
@@ -14,7 +14,7 @@ sentry_sdk.init(
     send_default_pii=False,
     max_request_body_size="never",
     include_local_variables=False,
-    integrations=[sentry_dramatiq.DramatiqIntegration(), RedisIntegration()],
+    integrations=[DramatiqIntegration(), RedisIntegration()],
 )
 
 from fief import tasks  # noqa: E402

@@ -35,18 +35,18 @@
     {% if webhook_log.response %}
     <div class="mt-6">
       <div class="text-sm font-semibold text-slate-800">Response</div>
-      <pre class="relative overflow-scroll p-1 bg-slate-100 rounded border border-slate-300">{{ webhook_log.response | trim }}</pre>
+      <pre class="relative overflow-scroll p-1 bg-slate-100 rounded-sm border border-slate-300">{{ webhook_log.response | trim }}</pre>
     </div>
     {% endif %}
     {% if webhook_log.error_message %}
     <div class="mt-6">
       <div class="text-sm font-semibold text-slate-800">Error message</div>
-      <pre class="relative overflow-scroll p-1 bg-slate-100 rounded border border-slate-300">{{ webhook_log.error_message | trim }}</pre>
+      <pre class="relative overflow-scroll p-1 bg-slate-100 rounded-sm border border-slate-300">{{ webhook_log.error_message | trim }}</pre>
     </div>
     {% endif %}
     <div class="mt-6">
       <div class="text-sm font-semibold text-slate-800">Request payload</div>
-      <pre class="relative overflow-scroll p-1 bg-slate-100 rounded border border-slate-300">{{ webhook_log.payload_dict | tojson(indent=4) | trim }}</pre>
+      <pre class="relative overflow-scroll p-1 bg-slate-100 rounded-sm border border-slate-300">{{ webhook_log.payload_dict | tojson(indent=4) | trim }}</pre>
     </div>
   {% endcall %}
   {% call modal.footer() %}

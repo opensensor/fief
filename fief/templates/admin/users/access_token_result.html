@@ -21,7 +21,7 @@
     <div class="flex justify-end my-2">
       {{ buttons.clipboard(access_token | trim) }}
       </div>
-    <pre class="relative overflow-scroll p-1 bg-slate-100 rounded border border-slate-300">{{ access_token | trim }}</pre>
+    <pre class="relative overflow-scroll p-1 bg-slate-100 rounded-sm border border-slate-300">{{ access_token | trim }}</pre>
     <div class="text-justify text-xs mt-1">It will expire in {{ expires_in }} seconds.</div>
   {% endcall %}
   {% call modal.footer() %}

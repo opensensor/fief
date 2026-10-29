@@ -231,7 +231,7 @@ class DeviceSessionsService:
             def _eff_last(t):  # noqa: ANN001 - internal helper
                 return t.last_seen_at or t.created_at
 
-            all_tokens = [*sessions, *refreshes]
+            all_tokens: list[SessionToken | RefreshToken] = [*sessions, *refreshes]
             most_recent = max(all_tokens, key=_eff_last)
             first_seen = min(t.created_at for t in all_tokens)
             last_seen = _eff_last(most_recent)

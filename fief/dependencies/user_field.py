@@ -81,7 +81,7 @@ async def get_user_field_create_internal_model(user_field_create: UserFieldCreat
 
     return create_model(
         "UserFieldCreateInternal",
-        type=(Literal[user_field_type], ...),  # pyright: ignore
+        type=(Literal[user_field_type], ...),  # type: ignore[arg-type]
         configuration=(configuration_type, ...),
         __base__=UserFieldCreate,
     )
@@ -119,8 +119,8 @@ async def get_user_field_update_internal_model(
 
     return create_model(
         "UserFieldUpdateInternal",
-        type=(Literal[user_field_type], ...),  # pyright: ignore
-        configuration=(configuration_type | None, None),
+        type=(Literal[user_field_type], ...),  # type: ignore[arg-type]
+        configuration=(configuration_type | None, None),  # type: ignore[arg-type]
         __base__=UserFieldUpdate,
     )
 

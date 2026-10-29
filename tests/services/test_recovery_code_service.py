@@ -5,7 +5,7 @@ a database. The repository fake stores :class:`UserMfaRecoveryCode` rows in a
 plain in-memory list keyed by ``user_id`` so we can drive the
 ``generate_for`` / ``consume`` lifecycle end-to-end.
 
-Hashing uses ``passlib.hash.bcrypt`` for real (not mocked); bcrypt is fast
+Hashing uses ``pwdlib.hashers.bcrypt.BcryptHasher`` for real (not mocked); bcrypt is fast
 enough for a 10-row test set and we want to exercise the actual verify path.
 """
 
@@ -198,7 +198,7 @@ async def test_consume_rejects_malformed_code_without_calling_bcrypt(
     def _explode(*args: Any, **kwargs: Any) -> bool:
         raise AssertionError("bcrypt.verify must not be called for malformed input")
 
-    monkeypatch.setattr(rc_module.bcrypt, "verify", _explode)
+    monkeypatch.setattr(rc_module._bcrypt, "verify", _explode)
 
     assert await service.consume(user, "ABCDEF") is False  # 6 chars
     assert await service.consume(user, "ABCDEFG!") is False  # bad char

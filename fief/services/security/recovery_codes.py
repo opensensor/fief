@@ -5,7 +5,7 @@ This module owns the entire lifecycle of a user's recovery codes:
 - Format: 10 codes per generation, each 8 chars from RFC 4648 base32 (no
   ``0/1/8/9`` to avoid visual ambiguity), displayed as ``XXXX-XXXX``.
 - Storage: per-code bcrypt hash in ``user_mfa_recovery_codes.code_hash``.
-- Hashing is performed via ``passlib.hash.bcrypt`` directly — **not** via
+- Hashing is performed via ``pwdlib.hashers.bcrypt.BcryptHasher`` directly — **not** via
   the project ``password_helper`` — so recovery-code hashing is decoupled
   from any future migration of the user-password hash scheme.
 - Generation uses :func:`secrets.choice`; never :mod:`random`.
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import secrets
 
-from passlib.hash import bcrypt
+from pwdlib.hashers.bcrypt import BcryptHasher
 
 from fief.logger import AuditLogger
 from fief.models import AuditLogMessage, User, UserMfaRecoveryCode
@@ -33,6 +33,7 @@ __all__ = ["RecoveryCodeService"]
 # Base32 alphabet (RFC 4648) without ``0/1/8/9`` so codes read aloud cleanly.
 _ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 _CODE_LEN = 8  # total chars before formatting (split 4-4)
+_bcrypt = BcryptHasher()
 
 
 def _generate_code() -> str:
@@ -107,7 +108,7 @@ class RecoveryCodeService:
             normalized = _normalize(code)
             row = UserMfaRecoveryCode(
                 user_id=user.id,
-                code_hash=bcrypt.hash(normalized),
+                code_hash=_bcrypt.hash(normalized),
             )
             await self.recovery_repo.create(row)
 
@@ -143,7 +144,7 @@ class RecoveryCodeService:
         matched: UserMfaRecoveryCode | None = None
         for row in rows:
             try:
-                ok = bcrypt.verify(normalized, row.code_hash)
+                ok = _bcrypt.verify(normalized, row.code_hash)
             except (ValueError, TypeError):
                 # Defensive: a malformed stored hash should not crash the
                 # whole verify pass. Treat as a non-match for this row.

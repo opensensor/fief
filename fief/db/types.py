@@ -101,7 +101,7 @@ UNSAFE_SSL_MODES = {
 }
 
 SYNC_DRIVERS: dict[DatabaseType, str] = {
-    DatabaseType.POSTGRESQL: "postgresql",
+    DatabaseType.POSTGRESQL: "postgresql+psycopg",
     DatabaseType.MYSQL: "mysql+pymysql",
     DatabaseType.SQLITE: "sqlite",
 }
@@ -139,8 +139,8 @@ def get_ssl_mode_parameters(
     if ssl_mode in [PostreSQLSSLMode.VERIFY_FULL, MySQLSSLMode.VERIFY_IDENTITY]:
         context.check_hostname = True
 
-    # PyMySQL does not support SSL context, it uses LibPQ directly so we just pass allowed query parameters
-    if drivername == "postgresql":
+    # Psycopg uses libpq SSL parameters rather than a Python SSL context.
+    if drivername in {"postgresql", "postgresql+psycopg"}:
         query["sslmode"] = ssl_mode
         query["sslrootcert"] = ssl.get_default_verify_paths().openssl_cafile
     elif drivername in ["postgresql+asyncpg", "mysql+aiomysql", "mysql+pymysql"]:

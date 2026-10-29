@@ -36,8 +36,9 @@ class PasswordValidation:
             )
 
         password_strength = zxcvbn(password[0:MAX_PASSWORD_LENGTH])
-        if password_strength.score < min_score:
+        score = int(password_strength.score)
+        if score < min_score:
             valid = False
             messages.append(_("Password is not strong enough."))
 
-        return cls(valid, password_strength.score, messages)
+        return cls(valid, score, messages)

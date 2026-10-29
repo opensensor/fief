@@ -22,7 +22,7 @@
 
 {% macro error_column(webhook_log) %}
   {% if webhook_log.error_type %}
-    <code class="p-0.5 bg-slate-100 rounded border border-slate-300">{{ webhook_log.error_type }}</code>
+    <code class="p-0.5 bg-slate-100 rounded-sm border border-slate-300">{{ webhook_log.error_type }}</code>
   {% else %}
     —
   {% endif %}

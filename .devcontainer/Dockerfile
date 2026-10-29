@@ -1,8 +1,8 @@
-FROM mcr.microsoft.com/devcontainers/python:3.12
+FROM mcr.microsoft.com/devcontainers/python:3.14
 
-ENV PYTHONUNBUFFERED 1
-ENV HATCH_CONFIG /workspaces/fief/.devcontainer/hatch.config.toml
-ENV FORWARDED_ALLOW_IPS *
+ENV PYTHONUNBUFFERED=1
+ENV HATCH_CONFIG=/workspaces/fief/.devcontainer/hatch.config.toml
+ENV FORWARDED_ALLOW_IPS=*
 
 # [Optional] If your requirements rarely change, uncomment this section to add them to the image.
 # COPY requirements.txt /tmp/pip-tmp/

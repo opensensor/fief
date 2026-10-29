@@ -8,7 +8,7 @@ export async function registerPasskey(beginUrl, finishUrl) {
     });
     if (!optionsResp.ok) throw new Error('begin failed');
     const options = await optionsResp.json();
-    const attestation = await startRegistration(options);
+    const attestation = await startRegistration({ optionsJSON: options });
     const finishResp = await fetch(finishUrl, {
         method: 'POST',
         credentials: 'same-origin',
@@ -21,7 +21,7 @@ export async function registerPasskey(beginUrl, finishUrl) {
 
 // For 2FA challenge: options are embedded server-side, no /begin fetch
 export async function authenticateWithEmbeddedOptions(options, finishUrl) {
-    const assertion = await startAuthentication(options);
+    const assertion = await startAuthentication({ optionsJSON: options });
     const finishResp = await fetch(finishUrl, {
         method: 'POST',
         credentials: 'same-origin',

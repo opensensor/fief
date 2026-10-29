@@ -1,6 +1,6 @@
-import asyncio
 import contextlib
 import json
+import pickle
 import secrets
 import uuid
 from collections.abc import AsyncGenerator, Callable, Coroutine, Generator
@@ -14,6 +14,7 @@ import pytest_asyncio
 from dramatiq import Actor, Message
 from fastapi import FastAPI
 from fief_client import FiefAsync
+from sqlalchemy import select
 from sqlalchemy_utils import create_database, drop_database
 
 from fief.apps import api_app, auth_app, dashboard_app
@@ -29,7 +30,7 @@ from fief.dependencies.security import get_breached_password_checker
 from fief.dependencies.tasks import get_send_task
 from fief.dependencies.tenant_email_domain import get_tenant_email_domain
 from fief.dependencies.theme import get_theme_preview
-from fief.models import AdminAPIKey, AdminSessionToken, User
+from fief.models import AdminAPIKey, AdminSessionToken, EmailTemplate, User
 from fief.services.tenant_email_domain import TenantEmailDomain
 from fief.services.theme_preview import ThemePreview
 from fief.settings import settings
@@ -39,16 +40,10 @@ from tests.types import GetTestDatabase, HTTPClientGeneratorType, TenantParams
 pytest.register_assert_rewrite("tests.helpers")
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Force the pytest-asyncio loop to be the main one."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest.fixture(scope="session", autouse=True)
-def get_test_database(worker_id: str) -> GetTestDatabase:
+def get_test_database(
+    worker_id: str, tmp_path_factory: pytest.TempPathFactory
+) -> GetTestDatabase:
     @contextlib.asynccontextmanager
     async def _get_test_database(
         *, name: str = "fief-test", drop: bool = True
@@ -56,6 +51,8 @@ def get_test_database(worker_id: str) -> GetTestDatabase:
         url, connect_args = settings.get_database_connection_parameters(False)
 
         name = f"{name}-{worker_id}"
+        if settings.database_type == DatabaseType.SQLITE:
+            name = str(tmp_path_factory.getbasetemp() / name)
         url = url.set(database=name)
         assert url.database == name
 
@@ -92,7 +89,7 @@ async def main_engine(
 
 
 @pytest_asyncio.fixture(scope="session")
-async def test_data(main_engine: AsyncEngine) -> AsyncGenerator[TestData, None]:
+async def seeded_test_data(main_engine: AsyncEngine) -> AsyncGenerator[TestData, None]:
     await migrate_schema(main_engine)
     async with main_engine.begin() as connection:
         async with AsyncSession(bind=connection, expire_on_commit=False) as session:
@@ -100,7 +97,19 @@ async def test_data(main_engine: AsyncEngine) -> AsyncGenerator[TestData, None]:
                 for object in cast(ModelMapping, model).values():
                     session.add(object)
             await session.commit()
+            # Include templates inserted by migrations in fixture expectations.
+            for template in await session.scalars(select(EmailTemplate)):
+                data_mapping["email_templates"].setdefault(template.type.lower(), template)
     yield data_mapping
+
+
+@pytest.fixture
+def test_data(seeded_test_data: TestData) -> TestData:
+    # Tests attach, expire and mutate ORM instances. Give each test its own
+    # object graph so rollback cannot expire another test's fixture objects.
+    # SQLAlchemy supports pickle round trips for detached ORM graphs. These
+    # bytes are produced in-process from our own fixtures, never external input.
+    return pickle.loads(pickle.dumps(seeded_test_data))
 
 
 @pytest_asyncio.fixture

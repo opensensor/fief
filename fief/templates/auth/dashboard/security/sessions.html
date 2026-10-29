@@ -39,7 +39,7 @@
 <div class="space-y-6">
   {# Header — gradient icon tile + "Sign out of all others" button #}
   <header class="flex items-start gap-3">
-    <div class="hidden sm:flex h-10 w-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 items-center justify-center shadow-md shrink-0">
+    <div class="hidden sm:flex h-10 w-10 rounded-xl bg-linear-to-br from-teal-500 to-emerald-500 items-center justify-center shadow-md shrink-0">
       {# Combo "laptop + phone" device glyph #}
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-white">
         <path fill-rule="evenodd" d="M3 4.5A2.25 2.25 0 015.25 2.25h9A2.25 2.25 0 0116.5 4.5v.75H15V4.5a.75.75 0 00-.75-.75h-9a.75.75 0 00-.75.75v9c0 .414.336.75.75.75h6V15.75H5.25A2.25 2.25 0 013 13.5v-9zM2.25 17.25a.75.75 0 01.75-.75h9.75a.75.75 0 010 1.5H3a.75.75 0 01-.75-.75z" clip-rule="evenodd"/>
@@ -66,7 +66,7 @@
           >
             <button
               type="submit"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-rose-700 bg-white border border-rose-200 hover:border-rose-400 hover:bg-rose-50 shadow-sm transition-colors"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-rose-700 bg-white border border-rose-200 hover:border-rose-400 hover:bg-rose-50 shadow-xs transition-colors"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
                 <path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/>
@@ -81,7 +81,7 @@
 
   {% if devices | length == 0 %}
     {# Empty state — rare; cookie expired right before render. #}
-    <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-6 sm:p-8 shadow-sm text-center">
+    <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-xs p-6 sm:p-8 shadow-xs text-center">
       <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 text-slate-400">
           <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 6a.75.75 0 00-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 000-1.5h-3.75V6z" clip-rule="evenodd"/>
@@ -92,7 +92,7 @@
     </section>
   {% else %}
     {# Devices list — glass card with one row per device. #}
-    <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-sm p-2 sm:p-3 shadow-sm">
+    <section class="rounded-xl border border-slate-200/70 bg-white/70 backdrop-blur-xs p-2 sm:p-3 shadow-xs">
       <ul role="list" class="divide-y divide-slate-200/60">
         {% for row in devices %}
           <li
@@ -100,7 +100,7 @@
             class="flex items-start gap-3 sm:gap-4 px-3 sm:px-4 py-4"
           >
             {# Device kind icon #}
-            <div class="hidden sm:flex h-10 w-10 rounded-lg bg-gradient-to-br {{ 'from-teal-500 to-emerald-500' if row.is_current else 'from-slate-400 to-slate-500' }} items-center justify-center shadow-sm shrink-0 text-white">
+            <div class="hidden sm:flex h-10 w-10 rounded-lg bg-linear-to-br {{ 'from-teal-500 to-emerald-500' if row.is_current else 'from-slate-400 to-slate-500' }} items-center justify-center shadow-xs shrink-0 text-white">
               {{ device_icon(row.device_kind) }}
             </div>
 
@@ -137,7 +137,7 @@
                   hx-target="#device-row-{{ row.device_key }}"
                   hx-swap="outerHTML swap:300ms"
                   hx-on::error="this.disabled=false"
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-rose-700 bg-white border border-rose-200 hover:border-rose-400 hover:bg-rose-50 shadow-sm transition-colors"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-rose-700 bg-white border border-rose-200 hover:border-rose-400 hover:bg-rose-50 shadow-xs transition-colors"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
                     <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd"/>

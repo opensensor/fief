@@ -36,6 +36,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from typing import cast
 
 import redis.asyncio
 from redis import RedisError
@@ -131,8 +132,9 @@ class RateLimiter:
             # The oldest entry in the bucket sets the floor for the
             # ``Retry-After`` header: it's the entry that, once it falls
             # off the sliding edge, will free up a slot.
-            oldest = await self.redis.zrange(
-                bucket_key, 0, 0, withscores=True
+            oldest = cast(
+                list[tuple[bytes, float]],
+                await self.redis.zrange(bucket_key, 0, 0, withscores=True),
             )
             if oldest:
                 _member, oldest_score = oldest[0]

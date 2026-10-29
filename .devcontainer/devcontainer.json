@@ -6,7 +6,7 @@
 	"service": "app",
 	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 	"features": {
-		"ghcr.io/devcontainers/features/node:1": {},
+		"ghcr.io/devcontainers/features/node:1": { "version": "26.13.0" },
 		"ghcr.io/devcontainers-contrib/features/hatch:2": {}
 	},
 

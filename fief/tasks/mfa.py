@@ -11,6 +11,7 @@ changes (where no brand is in scope) fall back to the tenant default.
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 import dramatiq
 
@@ -21,7 +22,9 @@ from fief.services.email_template.types import EmailTemplateType
 from fief.tasks.base import TaskBase
 
 
-_STATE_TO_TEMPLATE: dict[str, EmailTemplateType] = {
+_STATE_TO_TEMPLATE: dict[
+    str, Literal[EmailTemplateType.MFA_ENABLED, EmailTemplateType.MFA_DISABLED]
+] = {
     "enabled": EmailTemplateType.MFA_ENABLED,
     "disabled": EmailTemplateType.MFA_DISABLED,
 }

@@ -19,8 +19,9 @@ def get_column_macro(context: runtime.Context, column):
 
 
 class LocaleJinja2Templates(Jinja2Templates):
-    def _create_env(self, directory):
-        env = super()._create_env(directory)
+    def __init__(self, directory):
+        super().__init__(directory=directory)
+        env = self.env
         env.add_extension("jinja2.ext.i18n")
 
         @pass_context
@@ -35,8 +36,6 @@ class LocaleJinja2Templates(Jinja2Templates):
         )
         env.filters["get_column_macro"] = get_column_macro
         env.install_gettext_translations(get_translations(), newstyle=True)
-
-        return env
 
     def TemplateResponse(  # type: ignore
         self,

@@ -1,75 +1,48 @@
-# =============================================================================
-# Stage 1: Build – compile translations, build static assets, build wheel
-# =============================================================================
-FROM node:24.22.1-slim AS node-build
-FROM python:3.12-slim AS builder
-
-COPY --from=node-build /usr/local/ /usr/local/
-
+# Build browser assets with the active Node LTS release.
+FROM node:26.13.0-bookworm-slim AS frontend
 WORKDIR /build
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY js ./js
+COPY scripts ./scripts
+COPY styles ./styles
+COPY tailwind.config.mjs ./
+COPY fief/templates ./fief/templates
+RUN mkdir -p fief/static && npm test && npm run build
 
-# Install build tools and libpq headers; Node is supplied by the pinned build stage.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM redis:8.10.3 AS redis
 
-# Install Python build tools
-RUN pip install --no-cache-dir --upgrade pip babel hatchling hatch-regex-commit build
-
-# Copy the full source tree
+# Build the wheel and install exactly the runtime dependencies from uv.lock.
+FROM python:3.14-slim-trixie AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /usr/local/bin/uv
+WORKDIR /build
+ENV UV_PYTHON_DOWNLOADS=never
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --locked --group docker --no-install-project
 COPY . .
+COPY --from=frontend /build/fief/static/ ./fief/static/
+RUN uv run --locked pybabel compile --domain=messages --directory=fief/locale \
+    && uv build --wheel --no-build-isolation --out-dir /dist \
+    && uv export --locked --no-dev --group docker --no-emit-project --output-file /requirements.txt \
+    && uv venv /opt/venv \
+    && uv pip sync --python /opt/venv/bin/python --require-hashes /requirements.txt \
+    && uv pip install --python /opt/venv/bin/python --no-deps /dist/*.whl
 
-# Build JavaScript/CSS static assets
-RUN npm ci && npm run build
-
-# Compile gettext .po → .mo translation files
-RUN pybabel compile --domain=messages --directory=fief/locale
-
-# Build the Python wheel
-RUN python -m build --wheel --outdir /build/dist
-
-# =============================================================================
-# Stage 2: Runtime image
-# =============================================================================
-FROM python:3.12-slim
-
+FROM python:3.14-slim-trixie
 WORKDIR /app
-
-ENV PYTHONUNBUFFERED=1
-
-# Install runtime system dependencies:
-#   - libpq-dev / libpq5 for psycopg2
-#   - redis-server (bundled, no separate Redis pod needed)
-#   - supervisor to manage multiple processes
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    redis-server \
-    supervisor \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install the wheel built in stage 1
-COPY --from=builder /build/dist/*.whl /tmp/
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir /tmp/*.whl \
-    && rm /tmp/*.whl
-
-# Trim build-only system packages
-RUN apt-get purge -y --auto-remove build-essential && rm -rf /var/lib/apt/lists/*
-
-# Create persistent data directory (used when DATABASE_TYPE=SQLITE)
-RUN mkdir -p /data/db
-
+ENV PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    DATABASE_LOCATION=/data/db \
+    SECRETS_DIR=/run/secrets \
+    PORT=8000
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libsystemd0 libzstd1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data/db /run/secrets \
+    && python -m pip uninstall --yes pip setuptools
+COPY --from=redis /usr/local/bin/redis-server /usr/local/bin/redis-server
+COPY --from=builder /opt/venv /opt/venv
 COPY docker/supervisord.conf /etc/supervisord.conf
-
-# Runtime environment defaults (override via k8s Secrets / ConfigMaps)
-ENV DATABASE_LOCATION=/data/db
-ENV SECRETS_DIR=/run/secrets
-ENV PORT=8000
-
 EXPOSE 8000
 
 ARG SENTRY_RELEASE

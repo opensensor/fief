@@ -388,7 +388,7 @@ class TestPostRegister:
         )
         assert deleted_registration_session is None
 
-        send_task_mock.assert_called_with(on_after_register, str(session_token.user_id))
+        send_task_mock.assert_called_with(on_after_register, str(session_token.user_id), None)
 
     async def test_no_email_conflict_on_another_tenant(
         self,
@@ -611,7 +611,7 @@ class TestPostRegister:
         )
         assert deleted_registration_session is None
 
-        send_task_mock.assert_called_with(on_after_register, str(session_token.user_id))
+        send_task_mock.assert_called_with(on_after_register, str(session_token.user_id), None)
 
     async def test_new_user_oauth_override_default_email(
         self,

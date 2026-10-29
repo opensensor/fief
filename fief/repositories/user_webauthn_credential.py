@@ -1,7 +1,9 @@
 from datetime import datetime
+from typing import cast
 
 from pydantic import UUID4
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.engine import CursorResult
 
 from fief.models import UserWebAuthnCredential
 from fief.repositories.base import BaseRepository, UUIDRepositoryMixin
@@ -46,7 +48,7 @@ class UserWebAuthnCredentialRepository(
             UserWebAuthnCredential.user_id == user_id,
         )
         result = await self._execute_statement(statement)
-        return result.rowcount or 0
+        return cast(CursorResult, result).rowcount or 0
 
     async def count_for_user(self, user_id: UUID4) -> int:
         statement = (
@@ -72,7 +74,7 @@ class UserWebAuthnCredentialRepository(
         await self._execute_statement(statement)
 
     async def rename_by_id_for_user(
-        self, id: UUID4, user_id: UUID4, label: str
+        self, id: UUID4, user_id: UUID4, label: str | None
     ) -> int:
         statement = (
             update(UserWebAuthnCredential)
@@ -83,4 +85,4 @@ class UserWebAuthnCredentialRepository(
             .values(label=label)
         )
         result = await self._execute_statement(statement)
-        return result.rowcount or 0
+        return cast(CursorResult, result).rowcount or 0

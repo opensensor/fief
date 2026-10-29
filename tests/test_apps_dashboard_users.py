@@ -236,7 +236,7 @@ class TestCreateUser:
         assert user.fields["onboarding_done"] is True
         assert user.fields["last_seen"] is not None
 
-        send_task_mock.assert_called_with(on_after_register, str(user.id))
+        send_task_mock.assert_called_with(on_after_register, str(user.id), None)
 
 
 @pytest.mark.asyncio
