@@ -12,11 +12,11 @@ from dramatiq.middleware import CurrentMessage
 from pydantic import UUID4
 from sqlalchemy.orm import selectinload
 
+from fief.crypto.verify_code import generate_verify_code
 from fief.db import AsyncSession
 from fief.db.main import get_single_main_async_session
 from fief.logger import logger
 from fief.middlewares.locale import BabelMiddleware, get_babel_middleware_kwargs
-from fief.crypto.verify_code import generate_verify_code
 from fief.models import Brand, EmailVerification, Tenant, User
 from fief.models.generics import BaseModel
 from fief.paths import EMAIL_TEMPLATES_DIRECTORY
@@ -135,12 +135,12 @@ class TaskBase:
         self, user_id: UUID4, email: str
     ) -> str:
         """Mint a fresh email-verification row for ``user_id`` and return the
-        plaintext code (the hash is what we store). Replaces any prior pending
-        verification for the user so only the latest link/code is valid."""
+        plaintext code (the hash is what we store). Welcome delivery and its
+        retries must not revoke an already delivered verification link. Explicit
+        resends replace pending codes; successful verification consumes them all."""
         code, code_hash = generate_verify_code()
         async with self.get_main_session() as session:
             repository = EmailVerificationRepository(session)
-            await repository.delete_by_user(user_id)
             await repository.create(
                 EmailVerification(code=code_hash, email=email, user_id=user_id)
             )
