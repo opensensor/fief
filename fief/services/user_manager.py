@@ -211,7 +211,7 @@ class UserManager:
         user.email_verified = True
         await self.user_repository.update(user)
 
-        await self.email_verification_repository.delete(email_verification)
+        await self.email_verification_repository.delete_by_user(user.id)
 
         return user
 
@@ -246,7 +246,7 @@ class UserManager:
         user.email_verified = True
         await self.user_repository.update(user)
 
-        await self.email_verification_repository.delete(email_verification)
+        await self.email_verification_repository.delete_by_user(user.id)
 
         return user
 

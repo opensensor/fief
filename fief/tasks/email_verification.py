@@ -4,12 +4,11 @@ import dramatiq
 
 from fief import schemas
 from fief.logger import logger
-from fief.models import EmailVerification
 from fief.repositories import EmailVerificationRepository
 from fief.services.email import Null
 from fief.services.email_template.contexts import VerifyEmailContext
 from fief.services.email_template.types import EmailTemplateType
-from fief.tasks.base import ObjectDoesNotExistTaskError, TaskBase
+from fief.tasks.base import TaskBase
 
 
 class OnEmailVerificationRequestedTask(TaskBase):
@@ -25,9 +24,13 @@ class OnEmailVerificationRequestedTask(TaskBase):
             )
 
             if email_verification is None:
-                raise ObjectDoesNotExistTaskError(
-                    EmailVerification, email_verification_id
-                )
+                # Resending or completing verification deletes the queued
+                # task's record. Retrying cannot restore that obsolete code.
+                logger.info("Skip obsolete email verification task")
+                return
+            if email_verification.is_expired:
+                logger.info("Skip expired email verification task")
+                return
 
             user = email_verification.user
             tenant = await self._get_tenant(user.tenant_id)
