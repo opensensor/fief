@@ -1,0 +1,12 @@
+[Unit]
+Description=Deploy latest main fief build to production
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/snap/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash %h/.local/lib/opensensor-hosting/fief-release-launch.sh
+TimeoutStartSec=35min
+UMask=0077
+Nice=5
